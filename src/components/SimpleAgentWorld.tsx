@@ -177,7 +177,7 @@ export default function SimpleAgentWorld() {
       <div className="flex-1 grid grid-cols-1 xl:grid-cols-5 gap-4 p-4 min-h-0">
         {/* PIXI Agent World Map */}
         <div 
-          className="xl:col-span-4 rounded-lg relative overflow-hidden bg-sky-200 flex items-center justify-center cursor-grab active:cursor-grabbing" 
+          className="xl:col-span-4 rounded-lg relative overflow-hidden flex items-center justify-center cursor-grab active:cursor-grabbing" 
           style={{ minHeight: '600px' }}
           onClick={handleMapClick}
           onMouseDown={handleMouseDown}
@@ -185,7 +185,7 @@ export default function SimpleAgentWorld() {
           onMouseUp={handleMouseUp}
           onMouseLeave={handleMouseUp}
         >
-          <div className="w-full h-full max-w-full max-h-full flex items-center justify-center">
+          <div className="w-full h-full max-w-full max-h-full">
             <Stage
               width={1000}
               height={700}
@@ -244,7 +244,7 @@ export default function SimpleAgentWorld() {
                   className="absolute pointer-events-none"
                   style={{
                     left: `${screenX}px`,
-                    top: `${screenY - 40}px`,
+                    top: `${screenY - 16}px`,
                     transform: 'translate(-50%, -100%)',
                   }}
                 >
