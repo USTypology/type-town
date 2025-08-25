@@ -190,7 +190,7 @@ export default function SimpleAgentWorld() {
               width={1000}
               height={700}
               options={{ 
-                backgroundColor: 0x87CEEB, 
+                backgroundColor: 0x2F4F2F, // Dark slate gray to blend better with map
                 antialias: false,
                 resolution: 1,
               }}
