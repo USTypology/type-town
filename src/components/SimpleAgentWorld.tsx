@@ -1,9 +1,47 @@
 import React, { useEffect, useState } from 'react';
+import { Stage } from '@pixi/react';
 import { agentSimulation, Agent, Conversation } from '../lib/staticAgentSimulation';
 import { clientLLM } from '../lib/clientLLM';
 import { worldPersistence } from '../lib/worldPersistence';
 import UserControls from './UserControls';
 import WorldManager from './WorldManager';
+import { PixiStaticMap } from './PixiStaticMap';
+import { Character } from './Character';
+import { WorldMap } from '../lib/staticTypes';
+import * as gentleMap from '../../data/gentle.js';
+import { data as f1SpritesheetData } from '../../data/spritesheets/f1';
+import { data as f2SpritesheetData } from '../../data/spritesheets/f2';
+import { data as f3SpritesheetData } from '../../data/spritesheets/f3';
+import { data as f4SpritesheetData } from '../../data/spritesheets/f4';
+import { data as f5SpritesheetData } from '../../data/spritesheets/f5';
+import { data as f6SpritesheetData } from '../../data/spritesheets/f6';
+
+// Character sprite mapping
+const characterSpriteSheets = {
+  'f1': { data: f1SpritesheetData, url: '/assets/32x32folk.png' },
+  'f2': { data: f2SpritesheetData, url: '/assets/32x32folk.png' },
+  'f3': { data: f3SpritesheetData, url: '/assets/32x32folk.png' },
+  'f4': { data: f4SpritesheetData, url: '/assets/32x32folk.png' },
+  'f5': { data: f5SpritesheetData, url: '/assets/32x32folk.png' },
+  'f6': { data: f6SpritesheetData, url: '/assets/32x32folk.png' },
+};
+
+// World map configuration based on gentle.js data
+const worldMapConfig: WorldMap = {
+  bgTiles: gentleMap.bgtiles,
+  objectTiles: gentleMap.objmap || [[]],
+  decorTiles: [[]],
+  width: gentleMap.screenxtiles,
+  height: gentleMap.screenytiles,
+  tileSize: gentleMap.tiledim,
+  tilesheetUrl: gentleMap.tilesetpath,
+  tilesPerRow: Math.floor(gentleMap.tilesetpxw / gentleMap.tiledim),
+  animatedSprites: gentleMap.animatedsprites || [],
+  tileSetDimX: gentleMap.tilesetpxw,
+  tileSetDimY: gentleMap.tilesetpxh,
+  tileDim: gentleMap.tiledim,
+  tileSetUrl: '/assets/gentle-obj.png', // Fix the asset path
+};
 
 export default function SimpleAgentWorld() {
   const [agents, setAgents] = useState<Agent[]>([]);
@@ -115,60 +153,62 @@ export default function SimpleAgentWorld() {
       </div>
 
       <div className="flex-1 grid grid-cols-1 lg:grid-cols-3 gap-4 p-4">
-        {/* Agent World Map */}
+        {/* PIXI Agent World Map */}
         <div 
-          className="lg:col-span-2 bg-green-100 rounded-lg relative overflow-hidden cursor-crosshair" 
-          style={{ minHeight: '400px' }}
-          onClick={handleMapClick}
+          className="lg:col-span-2 rounded-lg relative overflow-hidden" 
+          style={{ minHeight: '400px', width: '100%' }}
         >
-          <div className="absolute inset-0 bg-gradient-to-b from-sky-200 to-green-200">
-            {/* Simple town background pattern */}
-            <div className="w-full h-full opacity-20 bg-repeat" style={{
-              backgroundImage: 'url("data:image/svg+xml,%3Csvg width="40" height="40" viewBox="0 0 40 40" xmlns="http://www.w3.org/2000/svg"%3E%3Cg fill="%23000" fill-opacity="0.1"%3E%3Cpath d="m0 40l40-40h-40v40zm40 0v-40h-40l40 40z"/%3E%3C/g%3E%3C/svg%3E")'
-            }} />
+          <Stage
+            width={Math.min(800, worldMapConfig.width * worldMapConfig.tileSize)}
+            height={Math.min(600, worldMapConfig.height * worldMapConfig.tileSize)}
+            options={{ 
+              backgroundColor: 0x87CEEB, 
+              antialias: false,
+              resolution: 1,
+            }}
+          >
+            {/* Render the world map */}
+            <PixiStaticMap map={worldMapConfig} />
+            
+            {/* Render agents as PIXI characters */}
+            {agents.map(agent => {
+              const characterSheet = characterSpriteSheets[agent.character as keyof typeof characterSpriteSheets];
+              if (!characterSheet) {
+                return null;
+              }
+              
+              return (
+                <Character
+                  key={agent.id}
+                  textureUrl={characterSheet.url}
+                  spritesheetData={characterSheet.data}
+                  x={agent.position.x}
+                  y={agent.position.y}
+                  orientation={0}
+                  isMoving={agent.isMoving}
+                  isThinking={false}
+                  isSpeaking={!!agent.currentConversation}
+                  isViewer={agent.id === userCharacterId}
+                  onClick={() => setSelectedAgent(selectedAgent?.id === agent.id ? null : agent)}
+                />
+              );
+            })}
+          </Stage>
 
-            {/* Add some simple buildings/locations */}
-            <div className="absolute w-16 h-16 bg-brown-600 border border-brown-800 rounded opacity-60" style={{ left: '50px', top: '50px' }}>
-              <div className="text-xs text-white text-center mt-2">Library</div>
-            </div>
-            <div className="absolute w-16 h-16 bg-red-600 border border-red-800 rounded opacity-60" style={{ left: '200px', top: '300px' }}>
-              <div className="text-xs text-white text-center mt-2">Café</div>
-            </div>
-            <div className="absolute w-16 h-16 bg-blue-600 border border-blue-800 rounded opacity-60" style={{ left: '400px', top: '80px' }}>
-              <div className="text-xs text-white text-center mt-2">Lab</div>
-            </div>
-
-            {/* Render agents */}
+          {/* HTML overlay for agent info (positioned absolutely) */}
+          <div className="absolute inset-0 pointer-events-none">
             {agents.map(agent => (
               <div
-                key={agent.id}
-                className={`absolute transform -translate-x-1/2 -translate-y-1/2 cursor-pointer transition-all ${
-                  selectedAgent?.id === agent.id ? 'scale-125 z-10' : 'hover:scale-110'
-                }`}
+                key={`${agent.id}-info`}
+                className="absolute pointer-events-none"
                 style={{
                   left: `${agent.position.x}px`,
-                  top: `${agent.position.y}px`,
-                }}
-                onClick={(e) => {
-                  e.stopPropagation(); // Prevent map click when clicking agent
-                  setSelectedAgent(selectedAgent?.id === agent.id ? null : agent);
+                  top: `${agent.position.y - 40}px`,
+                  transform: 'translate(-50%, -100%)',
                 }}
               >
-                {/* Agent avatar - different styling for user vs AI */}
-                <div className={`w-10 h-10 rounded-full border-3 flex items-center justify-center text-white font-bold text-sm ${
-                  agent.isUserControlled ? 
-                    'bg-yellow-500 border-yellow-700 shadow-lg ring-2 ring-yellow-300' :
-                  agent.currentConversation ? 
-                    'bg-blue-500 border-blue-700 animate-pulse' :
-                  agent.isMoving ? 
-                    'bg-orange-500 border-orange-700' :
-                    'bg-purple-500 border-purple-700'
-                } ${agent.id === userCharacterId ? 'ring-4 ring-white' : ''}`}>
-                  {agent.isUserControlled ? '👤' : agent.name[0]}
-                </div>
-                
-                {/* Agent name and status */}
-                <div className="absolute top-12 left-1/2 transform -translate-x-1/2 bg-black bg-opacity-75 text-white text-xs px-2 py-1 rounded whitespace-nowrap">
+                {/* Agent name */}
+                <div className="bg-black bg-opacity-75 text-white text-xs px-2 py-1 rounded whitespace-nowrap">
                   {agent.name} {agent.isUserControlled ? '(You)' : ''}
                   {agent.isMoving && (
                     <div className="text-green-300">→ moving</div>
@@ -180,49 +220,13 @@ export default function SimpleAgentWorld() {
 
                 {/* Show last message as speech bubble */}
                 {agent.lastMessage && agent.lastMessageTime && Date.now() - agent.lastMessageTime < 10000 && (
-                  <div className="absolute bottom-12 left-1/2 transform -translate-x-1/2 bg-white border-2 border-gray-300 rounded-lg p-2 text-sm shadow-lg max-w-xs">
+                  <div className="absolute top-full left-1/2 transform -translate-x-1/2 bg-white border-2 border-gray-300 rounded-lg p-2 text-sm shadow-lg max-w-xs mt-2">
                     <div className="text-gray-800">{agent.lastMessage}</div>
-                    <div className="absolute top-full left-1/2 transform -translate-x-1/2 w-0 h-0 border-l-4 border-r-4 border-t-4 border-transparent border-t-white"></div>
+                    <div className="absolute bottom-full left-1/2 transform -translate-x-1/2 w-0 h-0 border-l-4 border-r-4 border-b-4 border-transparent border-b-white"></div>
                   </div>
-                )}
-
-                {/* Movement target indicator */}
-                {agent.targetPosition && (
-                  <div 
-                    className="absolute w-3 h-3 bg-yellow-400 border border-yellow-600 transform -translate-x-1/2 -translate-y-1/2 opacity-50"
-                    style={{
-                      left: `${agent.targetPosition.x - agent.position.x}px`,
-                      top: `${agent.targetPosition.y - agent.position.y}px`,
-                    }}
-                  />
                 )}
               </div>
             ))}
-
-            {/* Draw conversation connections */}
-            {conversations.map(conv => {
-              const agent1 = agents.find(a => a.id === conv.participants[0]);
-              const agent2 = agents.find(a => a.id === conv.participants[1]);
-              if (!agent1 || !agent2) return null;
-
-              return (
-                <svg 
-                  key={conv.id}
-                  className="absolute inset-0 pointer-events-none"
-                  style={{ width: '100%', height: '100%' }}
-                >
-                  <line
-                    x1={agent1.position.x}
-                    y1={agent1.position.y}
-                    x2={agent2.position.x}
-                    y2={agent2.position.y}
-                    stroke="rgba(59, 130, 246, 0.5)"
-                    strokeWidth="2"
-                    strokeDasharray="5,5"
-                  />
-                </svg>
-              );
-            })}
           </div>
         </div>
 
