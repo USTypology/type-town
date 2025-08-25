@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Stage } from '@pixi/react';
+import { Stage, Container } from '@pixi/react';
 import { agentSimulation, Agent, Conversation } from '../lib/staticAgentSimulation';
 import { clientLLM } from '../lib/clientLLM';
 import { worldPersistence } from '../lib/worldPersistence';
@@ -51,6 +51,10 @@ export default function SimpleAgentWorld() {
   const [selectedAgent, setSelectedAgent] = useState<Agent | null>(null);
   const [userCharacterId, setUserCharacterId] = useState<string>();
   const [showConversationLog, setShowConversationLog] = useState(false);
+  const [cameraX, setCameraX] = useState(0);
+  const [cameraY, setCameraY] = useState(0);
+  const [isDragging, setIsDragging] = useState(false);
+  const [lastMousePos, setLastMousePos] = useState({ x: 0, y: 0 });
 
   useEffect(() => {
     // Initialize world persistence
@@ -97,13 +101,37 @@ export default function SimpleAgentWorld() {
   };
 
   const handleMapClick = (event: React.MouseEvent<HTMLDivElement>) => {
-    if (!userCharacterId) return;
+    if (!userCharacterId || isDragging) return;
 
     const rect = event.currentTarget.getBoundingClientRect();
-    const x = event.clientX - rect.left;
-    const y = event.clientY - rect.top;
+    const x = event.clientX - rect.left + cameraX;
+    const y = event.clientY - rect.top + cameraY;
 
     agentSimulation.moveUserCharacter(userCharacterId, { x, y });
+  };
+
+  const handleMouseDown = (event: React.MouseEvent<HTMLDivElement>) => {
+    setIsDragging(true);
+    setLastMousePos({ x: event.clientX, y: event.clientY });
+  };
+
+  const handleMouseMove = (event: React.MouseEvent<HTMLDivElement>) => {
+    if (!isDragging) return;
+    
+    const deltaX = event.clientX - lastMousePos.x;
+    const deltaY = event.clientY - lastMousePos.y;
+    
+    const maxCameraX = Math.max(0, (worldMapConfig.width * worldMapConfig.tileSize) - 1000);
+    const maxCameraY = Math.max(0, (worldMapConfig.height * worldMapConfig.tileSize) - 700);
+    
+    setCameraX(Math.max(0, Math.min(maxCameraX, cameraX - deltaX)));
+    setCameraY(Math.max(0, Math.min(maxCameraY, cameraY - deltaY)));
+    
+    setLastMousePos({ x: event.clientX, y: event.clientY });
+  };
+
+  const handleMouseUp = () => {
+    setIsDragging(false);
   };
 
   const handleUserCharacterCreated = (userId: string) => {
@@ -146,83 +174,106 @@ export default function SimpleAgentWorld() {
         </div>
       </div>
 
-      <div className="flex-1 grid grid-cols-1 xl:grid-cols-4 gap-4 p-4 min-h-0">
+      <div className="flex-1 grid grid-cols-1 xl:grid-cols-5 gap-4 p-4 min-h-0">
         {/* PIXI Agent World Map */}
         <div 
-          className="xl:col-span-3 rounded-lg relative overflow-hidden bg-sky-200 flex items-center justify-center" 
-          style={{ minHeight: '500px' }}
+          className="xl:col-span-4 rounded-lg relative overflow-hidden bg-sky-200 flex items-center justify-center cursor-grab active:cursor-grabbing" 
+          style={{ minHeight: '600px' }}
+          onClick={handleMapClick}
+          onMouseDown={handleMouseDown}
+          onMouseMove={handleMouseMove}
+          onMouseUp={handleMouseUp}
+          onMouseLeave={handleMouseUp}
         >
           <div className="w-full h-full max-w-full max-h-full flex items-center justify-center">
             <Stage
-              width={Math.min(720, worldMapConfig.width * worldMapConfig.tileSize)}
-              height={Math.min(480, worldMapConfig.height * worldMapConfig.tileSize)}
+              width={1000}
+              height={700}
               options={{ 
                 backgroundColor: 0x87CEEB, 
                 antialias: false,
                 resolution: 1,
               }}
             >
-            {/* Render the world map */}
-            <PixiStaticMap map={worldMapConfig} />
-            
-            {/* Render agents as PIXI characters */}
-            {agents.map(agent => {
-              const characterSheet = characterSpriteSheets[agent.character as keyof typeof characterSpriteSheets];
-              if (!characterSheet) {
-                return null;
-              }
+            {/* Camera container for world positioning */}
+            <Container x={-cameraX} y={-cameraY}>
+              {/* Render the world map */}
+              <PixiStaticMap map={worldMapConfig} />
               
-              return (
-                <Character
-                  key={agent.id}
-                  textureUrl={characterSheet.url}
-                  spritesheetData={characterSheet.data}
-                  x={agent.position.x}
-                  y={agent.position.y}
-                  orientation={0}
-                  isMoving={agent.isMoving}
-                  isThinking={false}
-                  isSpeaking={!!agent.currentConversation}
-                  isViewer={agent.id === userCharacterId}
-                  onClick={() => setSelectedAgent(selectedAgent?.id === agent.id ? null : agent)}
-                />
-              );
-            })}
+              {/* Render agents as PIXI characters */}
+              {agents.map(agent => {
+                const characterSheet = characterSpriteSheets[agent.character as keyof typeof characterSpriteSheets];
+                if (!characterSheet) {
+                  return null;
+                }
+                
+                return (
+                  <Character
+                    key={agent.id}
+                    textureUrl={characterSheet.url}
+                    spritesheetData={characterSheet.data}
+                    x={agent.position.x}
+                    y={agent.position.y}
+                    orientation={0}
+                    isMoving={agent.isMoving}
+                    isThinking={false}
+                    isSpeaking={!!agent.currentConversation}
+                    isViewer={agent.id === userCharacterId}
+                    onClick={() => setSelectedAgent(selectedAgent?.id === agent.id ? null : agent)}
+                  />
+                );
+              })}
+            </Container>
             </Stage>
           </div>
 
           {/* HTML overlay for agent info (positioned absolutely) */}
           <div className="absolute inset-0 pointer-events-none">
-            {agents.map(agent => (
-              <div
-                key={`${agent.id}-info`}
-                className="absolute pointer-events-none"
-                style={{
-                  left: `${agent.position.x}px`,
-                  top: `${agent.position.y - 40}px`,
-                  transform: 'translate(-50%, -100%)',
-                }}
-              >
-                {/* Agent name */}
-                <div className="bg-black bg-opacity-75 text-white text-xs px-2 py-1 rounded whitespace-nowrap">
-                  {agent.name} {agent.isUserControlled ? '(You)' : ''}
-                  {agent.isMoving && (
-                    <div className="text-green-300">→ moving</div>
-                  )}
-                  {agent.currentConversation && (
-                    <div className="text-blue-300">💬 chatting</div>
+            {agents.map(agent => {
+              const screenX = agent.position.x - cameraX;
+              const screenY = agent.position.y - cameraY;
+              
+              // Only render if on screen
+              if (screenX < -100 || screenX > 1100 || screenY < -100 || screenY > 800) {
+                return null;
+              }
+              
+              return (
+                <div
+                  key={`${agent.id}-info`}
+                  className="absolute pointer-events-none"
+                  style={{
+                    left: `${screenX}px`,
+                    top: `${screenY - 40}px`,
+                    transform: 'translate(-50%, -100%)',
+                  }}
+                >
+                  {/* Agent name */}
+                  <div className="bg-black bg-opacity-75 text-white text-xs px-2 py-1 rounded whitespace-nowrap">
+                    {agent.name} {agent.isUserControlled ? '(You)' : ''}
+                    {agent.isMoving && (
+                      <div className="text-green-300">→ moving</div>
+                    )}
+                    {agent.currentConversation && (
+                      <div className="text-blue-300">💬 chatting</div>
+                    )}
+                  </div>
+
+                  {/* Show last message as speech bubble */}
+                  {agent.lastMessage && agent.lastMessageTime && Date.now() - agent.lastMessageTime < 10000 && (
+                    <div className="absolute top-full left-1/2 transform -translate-x-1/2 bg-white border-2 border-gray-300 rounded-lg p-2 text-sm shadow-lg max-w-xs mt-2">
+                      <div className="text-gray-800">{agent.lastMessage}</div>
+                      <div className="absolute bottom-full left-1/2 transform -translate-x-1/2 w-0 h-0 border-l-4 border-r-4 border-b-4 border-transparent border-b-white"></div>
+                    </div>
                   )}
                 </div>
-
-                {/* Show last message as speech bubble */}
-                {agent.lastMessage && agent.lastMessageTime && Date.now() - agent.lastMessageTime < 10000 && (
-                  <div className="absolute top-full left-1/2 transform -translate-x-1/2 bg-white border-2 border-gray-300 rounded-lg p-2 text-sm shadow-lg max-w-xs mt-2">
-                    <div className="text-gray-800">{agent.lastMessage}</div>
-                    <div className="absolute bottom-full left-1/2 transform -translate-x-1/2 w-0 h-0 border-l-4 border-r-4 border-b-4 border-transparent border-b-white"></div>
-                  </div>
-                )}
-              </div>
-            ))}
+              );
+            })}
+          </div>
+          
+          {/* Camera controls hint */}
+          <div className="absolute top-2 right-2 bg-black bg-opacity-75 text-white text-xs px-2 py-1 rounded pointer-events-none">
+            Click & drag to explore • {userCharacterId ? 'Click to move' : 'Join as character to move'}
           </div>
           
           {/* Loading/Error state overlay */}
