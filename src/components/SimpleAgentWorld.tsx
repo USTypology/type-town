@@ -121,13 +121,7 @@ export default function SimpleAgentWorld() {
 
   return (
     <div className="w-full h-full flex flex-col">
-      <div className="bg-brown-800 text-white p-4 flex justify-between items-center flex-wrap gap-4">
-        <div>
-          <h2 className="text-2xl font-bold">AI Town - Live Simulation</h2>
-          <p className="text-sm opacity-80">
-            Agents using {clientLLM.isReady() ? '✅ Client-side LLM (DistilGPT-2)' : '🤖 Fallback AI (Personality-based responses)'}
-          </p>
-        </div>
+      <div className="bg-brown-800 text-white p-4 flex justify-end items-center flex-wrap gap-4">
         <div className="flex gap-2 flex-wrap">
           <WorldManager 
             agents={agents}

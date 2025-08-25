@@ -6,7 +6,7 @@ import helpImg from '../assets/help.svg';
 import ReactModal from 'react-modal';
 import MusicButton from './components/buttons/MusicButton.tsx';
 import Button from './components/buttons/Button.tsx';
-import FreezeButton from './components/FreezeButton.tsx';
+
 import InteractButton from './components/buttons/InteractButton.tsx';
 import GameSimple from './components/GameSimple.tsx';
 
@@ -57,7 +57,6 @@ export default function AppStatic() {
 
         <footer className="justify-end bottom-0 left-0 w-full flex items-center mt-4 gap-3 p-6 flex-wrap pointer-events-none">
           <div className="flex gap-4 flex-grow pointer-events-none">
-            <FreezeButton />
             <MusicButton />
             <Button href="https://github.com/USTypology/ustypology.github.io" imgUrl={starImg}>
               Star
