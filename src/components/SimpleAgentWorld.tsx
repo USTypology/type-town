@@ -6,6 +6,7 @@ import { worldPersistence } from '../lib/worldPersistence';
 import UserControls from './UserControls';
 import WorldManager from './WorldManager';
 import BackendInfo from './BackendInfo';
+import ModelSelector from './ModelSelector';
 import { PixiStaticMap } from './PixiStaticMap';
 import { Character } from './Character';
 import { WorldMap } from '../lib/staticTypes';
@@ -312,6 +313,9 @@ export default function SimpleAgentWorld() {
           {/* Backend Performance Info */}
           <BackendInfo />
 
+          {/* Model Selector */}
+          <ModelSelector />
+
           {/* Agent Info Panel */}
           <div className="bg-brown-800 text-white rounded-lg p-4">
             {selectedAgent ? (
@@ -433,7 +437,9 @@ export default function SimpleAgentWorld() {
       {/* Status bar */}
       <div className="bg-gray-800 text-white p-2 text-sm flex justify-between">
         <div>
-          LLM Status: {clientLLM.isReady() ? '🟢 Ready (HF Transformers)' : '🟡 Fallback Mode'}
+          LLM Status: {clientLLM.isReady() ? 
+            `🟢 ${clientLLM.getCurrentModelConfig()?.name || clientLLM.getCurrentModel()}` : 
+            '🟡 Loading...'}
         </div>
         <div>
           Simulation: {isSimulationRunning ? '🟢 Running' : '🔴 Stopped'}

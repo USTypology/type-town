@@ -93,7 +93,9 @@ export class BackendDetector {
 
   private detectSIMD(): boolean {
     try {
-      return typeof WebAssembly.SIMD !== 'undefined';
+      // WebAssembly SIMD is often available as a feature flag in newer browsers
+      return typeof WebAssembly !== 'undefined' && 
+             typeof (WebAssembly as any).SIMD !== 'undefined';
     } catch {
       return false;
     }

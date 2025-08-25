@@ -10,7 +10,7 @@ test.describe('Type Town NPC Interaction and Map Display Tests', () => {
     await expect(page.locator('h1')).toContainText('Type Town');
   });
 
-  test('should detect backend capabilities and show performance metrics', async ({ page }) => {
+  test('should detect backend capabilities and show performance metrics with model selection', async ({ page }) => {
     // Wait for backend detection component to load
     await page.waitForSelector('text=Backend Performance', { timeout: 10000 });
     
@@ -18,8 +18,12 @@ test.describe('Type Town NPC Interaction and Map Display Tests', () => {
     const backendInfo = page.locator('text=Backend Performance').locator('..'); 
     await expect(backendInfo).toBeVisible();
     
-    // Click show details to expand
-    const showDetailsBtn = page.locator('button', { hasText: 'Show Details' });
+    // Check for model selector component
+    const modelSelector = page.locator('text=Language Model').locator('..');
+    await expect(modelSelector).toBeVisible();
+    
+    // Click show details to expand backend info
+    const showDetailsBtn = page.locator('button', { hasText: 'Show Details' }).first();
     if (await showDetailsBtn.isVisible()) {
       await showDetailsBtn.click();
       
@@ -35,9 +39,29 @@ test.describe('Type Town NPC Interaction and Map Display Tests', () => {
       const jsResult = page.locator('text=JavaScript').first();
       await expect(jsResult).toBeVisible();
     }
+
+    // Check model selector details
+    const modelDetailsBtn = page.locator('button', { hasText: 'Show Details' }).last();
+    if (await modelDetailsBtn.isVisible()) {
+      await modelDetailsBtn.click();
+      
+      // Verify model selection options are available
+      await expect(page.locator('text=Available Models')).toBeVisible();
+      
+      // Check for specific model types
+      const distilGPT = page.locator('text=DistilGPT-2');
+      const llamaModels = page.locator('text=Llama 3.2');
+      
+      await expect(distilGPT).toBeVisible();
+      
+      // WebGPU models should be listed (even if not selectable)
+      if (await llamaModels.count() > 0) {
+        console.log('Llama models detected in selection');
+      }
+    }
     
     await page.screenshot({ 
-      path: 'tests/screenshots/backend-detection.png',
+      path: 'tests/screenshots/backend-detection-enhanced.png',
       fullPage: true 
     });
   });
@@ -182,7 +206,108 @@ test.describe('Type Town NPC Interaction and Map Display Tests', () => {
     });
   });
 
-  test('should show comprehensive interaction verification', async ({ page }) => {
+  test('should show language model selection with WebGPU capability detection', async ({ page }) => {
+    // Wait for model selector to load
+    await page.waitForSelector('text=Language Model', { timeout: 10000 });
+    
+    const modelSelector = page.locator('text=Language Model').locator('..');
+    await expect(modelSelector).toBeVisible();
+    
+    // Check current model display
+    const currentModelText = page.locator('text=Current Model:');
+    await expect(currentModelText).toBeVisible();
+    
+    // Click show details to expand
+    const showDetailsBtn = page.locator('button', { hasText: 'Show Details' }).last();
+    if (await showDetailsBtn.isVisible()) {
+      await showDetailsBtn.click();
+      
+      // Wait for models to load
+      await page.waitForTimeout(2000);
+      
+      // Check for available models section
+      await expect(page.locator('text=Available Models')).toBeVisible();
+      
+      // Verify WebGPU status is shown
+      const webGPUStatus = page.locator('text=WebGPU Support:');
+      if (await webGPUStatus.isVisible()) {
+        const statusText = await webGPUStatus.textContent();
+        console.log('WebGPU status:', statusText);
+      }
+      
+      // Check for different model categories
+      const modelButtons = page.locator('button').filter({ hasText: /DistilGPT|Llama|GPT-2/ });
+      const modelCount = await modelButtons.count();
+      console.log(`Found ${modelCount} available models`);
+      
+      expect(modelCount).toBeGreaterThan(0);
+      
+      // Look for WebGPU-enabled models
+      const webGPUModels = page.locator('text=WebGPU');
+      const webGPUModelCount = await webGPUModels.count();
+      console.log(`Found ${webGPUModelCount} WebGPU models`);
+      
+      // Check for recommendation section
+      const recommendedSection = page.locator('text=Recommended Model');
+      if (await recommendedSection.isVisible()) {
+        console.log('Model recommendation system is working');
+      }
+    }
+    
+    await page.screenshot({ 
+      path: 'tests/screenshots/model-selection.png',
+      fullPage: true 
+    });
+  });
+
+  test('should demonstrate comprehensive language model capabilities', async ({ page }) => {
+    console.log('Testing language model capabilities...');
+    
+    // Wait for everything to load
+    await page.waitForTimeout(5000);
+    
+    // Take initial state screenshot
+    await page.screenshot({ 
+      path: 'tests/screenshots/model-capabilities-initial.png',
+      fullPage: true 
+    });
+    
+    // Check WebGPU availability for larger models
+    const webGPUSupported = await page.evaluate(() => {
+      return 'gpu' in navigator && typeof (navigator as any).gpu?.requestAdapter === 'function';
+    });
+    
+    console.log('WebGPU supported:', webGPUSupported);
+    
+    // Check current model in status bar
+    const statusBar = page.locator('text=LLM Status:');
+    if (await statusBar.isVisible()) {
+      const statusText = await statusBar.textContent();
+      console.log('Current LLM status:', statusText);
+    }
+    
+    // Open model selector if available
+    const modelDetailsBtn = page.locator('button', { hasText: 'Show Details' }).last();
+    if (await modelDetailsBtn.isVisible()) {
+      await modelDetailsBtn.click();
+      await page.waitForTimeout(2000);
+      
+      // Get list of available models
+      const modelButtons = page.locator('button').filter({ hasText: /GB|MB/ });
+      const modelCount = await modelButtons.count();
+      
+      for (let i = 0; i < Math.min(modelCount, 3); i++) {
+        const modelButton = modelButtons.nth(i);
+        const modelText = await modelButton.textContent();
+        console.log(`Available model ${i + 1}: ${modelText?.substring(0, 100)}`);
+      }
+    }
+    
+    await page.screenshot({ 
+      path: 'tests/screenshots/model-capabilities-final.png',
+      fullPage: true 
+    });
+  });
     console.log('Starting comprehensive interaction test...');
     
     // Start simulation
