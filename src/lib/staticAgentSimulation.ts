@@ -52,7 +52,7 @@ export class StaticAgentSimulation {
         identity: `Lucky is always happy and curious, and he loves cheese. He spends most of his time reading about the history of science and traveling through the galaxy on whatever ship will take him. He's very articulate and infinitely patient, except when he sees a squirrel. He's also incredibly loyal and brave. Lucky has just returned from an amazing space adventure to explore a distant planet and he's very excited to tell people about it.`,
         plan: 'You want to hear all the gossip.',
         character: 'f1',
-        position: { x: 100, y: 150 },
+        position: { x: 200, y: 300 },
         memories: ['Recently returned from space adventure', 'Loves cheese and science'],
         goals: ['Share space adventure stories', 'Learn local gossip']
       },
@@ -62,7 +62,7 @@ export class StaticAgentSimulation {
         identity: `Bob is always grumpy and he loves trees. He spends most of his time gardening by himself. When spoken to he'll respond but try and get out of the conversation as quickly as possible. Secretly he resents that he never went to college.`,
         plan: 'You want to avoid people as much as possible.',
         character: 'f4',
-        position: { x: 300, y: 200 },
+        position: { x: 400, y: 200 },
         memories: ['Never went to college', 'Prefers gardening alone'],
         goals: ['Tend to plants', 'Avoid social interactions']
       },
@@ -72,7 +72,7 @@ export class StaticAgentSimulation {
         identity: `Stella can never be trusted. She tries to trick people all the time, normally into giving her money, or doing things that will make her money. She's incredibly charming and not afraid to use her charm. She's a sociopath who has no empathy, but hides it well.`,
         plan: 'You want to take advantage of others as much as possible.',
         character: 'f6',
-        position: { x: 200, y: 100 },
+        position: { x: 600, y: 400 },
         memories: ['Successfully tricked someone last week', 'Charming exterior hides true nature'],
         goals: ['Find new marks to con', 'Make money through deception']
       },
@@ -82,7 +82,7 @@ export class StaticAgentSimulation {
         identity: `Alice is a famous scientist. She is smarter than everyone else and has discovered mysteries of the universe no one else can understand. As a result she often speaks in oblique riddles. She comes across as confused and forgetful.`,
         plan: 'You want to figure out how the world works.',
         character: 'f3',
-        position: { x: 400, y: 150 },
+        position: { x: 350, y: 500 },
         memories: ['Discovered quantum entanglement patterns', 'Nobel prize consideration'],
         goals: ['Unravel universe mysteries', 'Share knowledge in cryptic ways']
       },
@@ -92,7 +92,7 @@ export class StaticAgentSimulation {
         identity: `Pete is deeply religious and sees the hand of god or of the work of the devil everywhere. He can't have a conversation without bringing up his deep faith, or warning others about the perils of hell.`,
         plan: 'You want to convert everyone to your religion.',
         character: 'f7',
-        position: { x: 150, y: 250 },
+        position: { x: 300, y: 600 },
         memories: ['Had religious awakening last month', 'Sees signs everywhere'],
         goals: ['Convert others to faith', 'Warn about spiritual dangers']
       }
@@ -177,7 +177,9 @@ export class StaticAgentSimulation {
         const agent2 = freeAgents[j];
         const distance = this.getDistance(agent1.position, agent2.position);
         
-        if (distance < 60 && Math.random() < 0.5) { // 50% chance to start conversation when close
+        // Increased trigger distance and probability for better conversation chances
+        if (distance < 120 && Math.random() < 0.8) { // 80% chance to start conversation when close
+          console.log(`Starting conversation between ${agent1.name} and ${agent2.name} (distance: ${distance.toFixed(1)})`);
           this.startConversation(agent1.id, agent2.id);
         }
       }
@@ -279,56 +281,69 @@ export class StaticAgentSimulation {
 
   private generateFallbackMessage(agent: Agent, otherAgent: Agent, conversation: Conversation, type: string): string {
     const messages = {
-      alice: {
+      lucky: {
         start: [
-          `Hi ${otherAgent.name}! I've been thinking about some fascinating new AI developments.`,
-          `Hello there! I'm Alice, nice to meet you.`,
-          `Hey ${otherAgent.name}! What's been on your mind lately?`
+          `Hi ${otherAgent.name}! I just got back from the most amazing space adventure!`,
+          `Hello there! I'm Lucky, nice to meet you. Want to hear about my travels?`,
+          `Hey ${otherAgent.name}! Have you heard any good gossip lately?`
         ],
         continue: [
-          "That's really interesting! I'd love to hear more about that.",
-          "I see what you mean. Have you considered the broader implications?",
-          "Fascinating perspective! It reminds me of some research I read recently.",
-          "That's a great point. It makes me think about how technology shapes our world."
+          "That's really fascinating! It reminds me of something I saw on a distant planet.",
+          "Wow, that's quite interesting! Space travel has taught me to appreciate different perspectives.",
+          "Amazing! I'd love to hear more - I collect stories from my adventures.",
+          "That's wonderful! Speaking of adventures, have I told you about the cheese mines of Zephyr Prime?"
         ]
       },
       bob: {
         start: [
-          `Hi ${otherAgent.name}! I'm Bob, an artist. Nice to meet you!`,
-          `Hello! I've been working on some new paintings. What brings you here?`,
-          `Hey there! I love meeting new people and hearing their stories.`
+          `Oh, hi ${otherAgent.name}. I was just... working with the plants.`,
+          `Hello. I'm Bob. I prefer to keep to myself, but nice to meet you.`,
+          `Hey there. I don't really talk much, but... hi.`
         ],
         continue: [
-          "That sounds creative! I'm always inspired by different perspectives.",
-          "Interesting! Art and life often mirror each other, don't you think?",
-          "That reminds me of a painting I'm working on.",
-          "You have such a unique way of looking at things!"
+          "Yeah, sure. That's... nice.",
+          "Hmm. Well, I should probably get back to my gardening.",
+          "Uh-huh. Look, I'm not really good with people.",
+          "Right. Well, plants don't usually disagree with you."
         ]
       },
-      charlie: {
+      stella: {
         start: [
-          `Hi! I'm Charlie. I love learning new things - what's your story?`,
-          `Hello ${otherAgent.name}! I'm curious about so many things. What do you do?`,
-          `Hey there! I'm always eager to learn from others. Nice to meet you!`
+          `Well hello there, ${otherAgent.name}! What a lovely day to meet someone new.`,
+          `Hi darling! I'm Stella. You look like someone with excellent taste.`,
+          `Hello gorgeous! I bet you have the most interesting stories.`
         ],
         continue: [
-          "Wow, I never thought about it that way! Can you tell me more?",
-          "That's so cool! I'm always amazed by what people know.",
-          "Really? That's fascinating! I love learning new things.",
-          "You're so knowledgeable! This is exactly the kind of thing I love to discuss."
+          "Oh how fascinating! You know, I have this wonderful opportunity I think you'd love...",
+          "That's so clever of you! You seem like someone who appreciates good investments.",
+          "How delightfully smart! I have a feeling we could help each other out.",
+          "Such wisdom! You know, successful people like us should stick together."
         ]
       },
-      diana: {
+      alice: {
         start: [
-          `Hello ${otherAgent.name}. I'm Diana. I enjoy deep conversations about life.`,
-          `Greetings! I find myself pondering the deeper meanings in our interactions.`,
-          `Hi there. I'm always interested in exploring what makes us who we are.`
+          `Greetings ${otherAgent.name}. I've been pondering the quantum implications of social interaction.`,
+          `Hello. I'm Alice. The universe whispers its secrets, but do we listen?`,
+          `Hi there. Time is a flat circle, but conversations are... spherical?`
         ],
         continue: [
-          "That touches on something profound about the human experience.",
-          "There's wisdom in what you're saying. It makes me reflect on my own journey.",
-          "Such insights reveal the complexity of our existence.",
-          "You've given me something meaningful to contemplate."
+          "Ah yes, the butterfly effect cascades through even the smallest utterances...",
+          "Indeed, much like Schrödinger's cat, truth exists in superposition until observed.",
+          "The mathematics of human connection follow such elegant algorithms...",
+          "Fascinating! This reminds me of my work on interdimensional probability matrices."
+        ]
+      },
+      pete: {
+        start: [
+          `Blessings upon you, ${otherAgent.name}! The Lord has brought us together today.`,
+          `Hello my friend! I'm Pete. Have you considered the state of your eternal soul lately?`,
+          `Greetings! I see God's hand in our meeting today.`
+        ],
+        continue: [
+          "Praise be! The Lord works in mysterious ways through all our conversations.",
+          "Indeed, brother/sister! Though beware - the devil lurks in idle words.",
+          "Hallelujah! Faith guides us through all of life's trials and tribulations.",
+          "Amen! The righteous path is narrow, but salvation awaits the faithful."
         ]
       }
     };
@@ -386,19 +401,21 @@ export class StaticAgentSimulation {
 
   private planNewActions() {
     this.agents.forEach(agent => {
-      if (!agent.currentConversation && !agent.isMoving && Math.random() < 0.1) {
-        // 10% chance to start moving randomly
+      if (!agent.currentConversation && !agent.isMoving && Math.random() < 0.15) {
+        // 15% chance to start moving randomly (increased from 10%)
+        console.log(`${agent.name} is starting to move to a new location`);
         this.moveAgentRandomly(agent);
       }
     });
   }
 
   private moveAgentRandomly(agent: Agent) {
-    const mapWidth = 500;
-    const mapHeight = 400;
+    // Map dimensions: 45 tiles × 32px/tile = 1440px width, 32 tiles × 32px/tile = 1024px height
+    const mapWidth = 1440;
+    const mapHeight = 1024;
     agent.targetPosition = {
-      x: Math.random() * mapWidth,
-      y: Math.random() * mapHeight
+      x: Math.random() * (mapWidth - 100) + 50, // Add some margin from edges
+      y: Math.random() * (mapHeight - 100) + 50
     };
     agent.isMoving = true;
   }

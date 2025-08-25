@@ -121,6 +121,7 @@ export default function SimpleAgentWorld() {
     const deltaX = event.clientX - lastMousePos.x;
     const deltaY = event.clientY - lastMousePos.y;
     
+    // Updated bounds for larger map: 1440x1024 map size
     const maxCameraX = Math.max(0, (worldMapConfig.width * worldMapConfig.tileSize) - 1000);
     const maxCameraY = Math.max(0, (worldMapConfig.height * worldMapConfig.tileSize) - 700);
     
@@ -177,7 +178,7 @@ export default function SimpleAgentWorld() {
       <div className="flex-1 grid grid-cols-1 xl:grid-cols-5 gap-4 p-4 min-h-0">
         {/* PIXI Agent World Map */}
         <div 
-          className="xl:col-span-4 rounded-lg relative overflow-hidden flex items-center justify-center cursor-grab active:cursor-grabbing" 
+          className="xl:col-span-4 rounded-lg relative overflow-hidden flex items-center justify-center cursor-grab active:cursor-grabbing bg-black" 
           style={{ minHeight: '600px' }}
           onClick={handleMapClick}
           onMouseDown={handleMouseDown}
@@ -190,7 +191,7 @@ export default function SimpleAgentWorld() {
               width={1000}
               height={700}
               options={{ 
-                backgroundColor: 0x2F4F2F, // Dark slate gray to blend better with map
+                backgroundColor: 0x000000, // Black background to eliminate grey areas
                 antialias: false,
                 resolution: 1,
               }}
