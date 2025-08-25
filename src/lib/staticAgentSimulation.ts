@@ -44,8 +44,7 @@ export class StaticAgentSimulation {
   }
 
   private initializeAgents() {
-    // Use rich character data from original AI Town with proper tile-based positioning
-    // Positions are in tile coordinates (32x32 pixel tiles)
+    // Use rich character data from original AI Town
     const agentData = [
       {
         id: 'lucky',
@@ -53,7 +52,7 @@ export class StaticAgentSimulation {
         identity: `Lucky is always happy and curious, and he loves cheese. He spends most of his time reading about the history of science and traveling through the galaxy on whatever ship will take him. He's very articulate and infinitely patient, except when he sees a squirrel. He's also incredibly loyal and brave. Lucky has just returned from an amazing space adventure to explore a distant planet and he's very excited to tell people about it.`,
         plan: 'You want to hear all the gossip.',
         character: 'f1',
-        position: { x: 5 * 32, y: 8 * 32 },  // Tile position 5,8 * 32px
+        position: { x: 100, y: 150 },
         memories: ['Recently returned from space adventure', 'Loves cheese and science'],
         goals: ['Share space adventure stories', 'Learn local gossip']
       },
@@ -63,7 +62,7 @@ export class StaticAgentSimulation {
         identity: `Bob is always grumpy and he loves trees. He spends most of his time gardening by himself. When spoken to he'll respond but try and get out of the conversation as quickly as possible. Secretly he resents that he never went to college.`,
         plan: 'You want to avoid people as much as possible.',
         character: 'f4',
-        position: { x: 12 * 32, y: 15 * 32 },  // Near garden area
+        position: { x: 300, y: 200 },
         memories: ['Never went to college', 'Prefers gardening alone'],
         goals: ['Tend to plants', 'Avoid social interactions']
       },
@@ -73,7 +72,7 @@ export class StaticAgentSimulation {
         identity: `Stella can never be trusted. She tries to trick people all the time, normally into giving her money, or doing things that will make her money. She's incredibly charming and not afraid to use her charm. She's a sociopath who has no empathy, but hides it well.`,
         plan: 'You want to take advantage of others as much as possible.',
         character: 'f6',
-        position: { x: 8 * 32, y: 5 * 32 },  // Central area for socializing
+        position: { x: 200, y: 100 },
         memories: ['Successfully tricked someone last week', 'Charming exterior hides true nature'],
         goals: ['Find new marks to con', 'Make money through deception']
       },
@@ -83,7 +82,7 @@ export class StaticAgentSimulation {
         identity: `Alice is a famous scientist. She is smarter than everyone else and has discovered mysteries of the universe no one else can understand. As a result she often speaks in oblique riddles. She comes across as confused and forgetful.`,
         plan: 'You want to figure out how the world works.',
         character: 'f3',
-        position: { x: 18 * 32, y: 10 * 32 },  // Near lab area
+        position: { x: 400, y: 150 },
         memories: ['Discovered quantum entanglement patterns', 'Nobel prize consideration'],
         goals: ['Unravel universe mysteries', 'Share knowledge in cryptic ways']
       },
@@ -93,7 +92,7 @@ export class StaticAgentSimulation {
         identity: `Pete is deeply religious and sees the hand of god or of the work of the devil everywhere. He can't have a conversation without bringing up his deep faith, or warning others about the perils of hell.`,
         plan: 'You want to convert everyone to your religion.',
         character: 'f7',
-        position: { x: 3 * 32, y: 12 * 32 },  // Near church/quiet area
+        position: { x: 150, y: 250 },
         memories: ['Had religious awakening last month', 'Sees signs everywhere'],
         goals: ['Convert others to faith', 'Warn about spiritual dangers']
       }
@@ -221,7 +220,7 @@ export class StaticAgentSimulation {
     let message: string;
 
     try {
-      // Try to use client LLM (powered by transformers.js) if available
+      // Try to use client LLM if available
       if (clientLLM.isReady()) {
         const prompt = this.buildConversationPrompt(agent, otherAgent, conversation, type);
         message = await clientLLM.generateResponse(prompt, 100);

@@ -1,8 +1,8 @@
-import { TextGenerationPipeline } from '@xenova/transformers';
+import { pipeline, TextGenerationPipeline } from '@xenova/transformers';
 
 // Client-side LLM service using Transformers.js
 class ClientLLMService {
-  private textGenerator: any = null;
+  private textGenerator: TextGenerationPipeline | null = null;
   private isLoading = false;
 
   async initialize() {
@@ -10,26 +10,11 @@ class ClientLLMService {
     
     this.isLoading = true;
     try {
-      console.log('Initializing client-side LLM (DistilGPT-2)...');
-      
-      // Dynamically import transformers to avoid blocking app startup
-      const { pipeline } = await import('@xenova/transformers');
-      
       // Use a smaller model that can run efficiently in the browser
-      // Note: This might take a while to download on first run
-      this.textGenerator = await pipeline('text-generation', 'Xenova/distilgpt2', {
-        progress_callback: (data: any) => {
-          if (data.status === 'progress') {
-            console.log(`Loading model: ${Math.round(data.progress || 0)}%`);
-          }
-        }
-      });
-      
-      console.log('Client-side LLM initialized successfully');
+      this.textGenerator = await pipeline('text-generation', 'Xenova/distilgpt2') as TextGenerationPipeline;
     } catch (error) {
       console.error('Failed to initialize client-side LLM:', error);
-      // Don't throw - allow fallback to work
-      this.textGenerator = null;
+      throw error;
     } finally {
       this.isLoading = false;
     }
