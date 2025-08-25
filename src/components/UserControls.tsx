@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { agentSimulation, Agent } from '../lib/staticAgentSimulation';
 
 interface UserControlsProps {
@@ -25,6 +25,21 @@ export default function UserControls({
   const [userMessage, setUserMessage] = useState('');
 
   const userAgent = userCharacterId ? agents.find(a => a.id === userCharacterId) : null;
+
+  // Listen for NPC selection events from the map
+  useEffect(() => {
+    const handleNPCSelected = (event: CustomEvent) => {
+      const { npcId, npcName } = event.detail;
+      if (userCharacterId && npcId !== userCharacterId) {
+        setSelectedTarget(npcId);
+        // Could also show a toast or highlight the interaction area
+        console.log(`Selected NPC: ${npcName} for interaction`);
+      }
+    };
+
+    window.addEventListener('npcSelected', handleNPCSelected as EventListener);
+    return () => window.removeEventListener('npcSelected', handleNPCSelected as EventListener);
+  }, [userCharacterId]);
 
   const handleCreateUser = () => {
     if (userName.trim() && userIdentity.trim()) {
@@ -125,10 +140,13 @@ export default function UserControls({
           
           {/* Chat Interface */}
           <div className="space-y-2">
+            <div className="text-sm text-gray-300 mb-2">💬 Talk to NPCs (click on them or select below)</div>
             <select
               value={selectedTarget}
               onChange={(e) => setSelectedTarget(e.target.value)}
-              className="w-full p-2 rounded bg-gray-700 text-white"
+              className={`w-full p-2 rounded text-white ${
+                selectedTarget ? 'bg-blue-700 border-blue-400' : 'bg-gray-700'
+              } border-2 border-transparent`}
             >
               <option value="">Select character to talk to...</option>
               {availableTargets.map(agent => (
@@ -138,19 +156,29 @@ export default function UserControls({
               ))}
             </select>
             
+            {selectedTarget && (
+              <div className="bg-blue-900 p-2 rounded text-sm">
+                Ready to chat with: <strong>{availableTargets.find(a => a.id === selectedTarget)?.name}</strong>
+                <br />
+                <span className="text-blue-300">💡 Click on NPCs directly on the map for quick selection!</span>
+              </div>
+            )}
+            
             <div className="flex gap-2">
               <input
                 type="text"
-                placeholder="Type your message..."
+                placeholder={selectedTarget ? "Type your message..." : "Select an NPC first..."}
                 value={userMessage}
                 onChange={(e) => setUserMessage(e.target.value)}
                 onKeyPress={(e) => e.key === 'Enter' && handleSendMessage()}
-                className="flex-1 p-2 rounded bg-gray-700 text-white"
+                disabled={!selectedTarget}
+                className="flex-1 p-2 rounded bg-gray-700 text-white disabled:bg-gray-800 disabled:text-gray-500"
               />
               <button
                 onClick={handleSendMessage}
                 disabled={!selectedTarget || !userMessage.trim()}
-                className="bg-blue-600 hover:bg-blue-700 disabled:bg-gray-600 px-4 py-2 rounded"
+                className="bg-blue-600 hover:bg-blue-700 disabled:bg-gray-600 disabled:cursor-not-allowed px-4 py-2 rounded transition-colors"
+                title={!selectedTarget ? "Select an NPC first" : !userMessage.trim() ? "Type a message" : "Send message"}
               >
                 Send
               </button>

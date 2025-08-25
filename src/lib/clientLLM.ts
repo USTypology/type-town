@@ -1,19 +1,123 @@
-import { pipeline, TextGenerationPipeline } from '@xenova/transformers';
+import { pipeline, TextGenerationPipeline, env } from '@xenova/transformers';
+import { LLM_CONFIG } from './llmConfig';
+import { backendDetector } from './backendDetection';
 
-// Client-side LLM service using Transformers.js
+// Model configuration interface
+export interface ModelConfig {
+  name: string;
+  size: string;
+  requiresWebGPU: boolean;
+  contextLength: number;
+  description: string;
+}
+
+// Enhanced client-side LLM service with WebGPU support for larger models
 class ClientLLMService {
   private textGenerator: TextGenerationPipeline | null = null;
   private isLoading = false;
+  private currentModel: string = LLM_CONFIG.CLIENT_MODEL;
+  private supportedModels: { [key: string]: ModelConfig } = {};
 
-  async initialize() {
-    if (this.textGenerator || this.isLoading) return;
+  constructor() {
+    this.initializeSupportedModels();
+  }
+
+  private initializeSupportedModels() {
+    this.supportedModels = {
+      'Xenova/distilgpt2': {
+        name: 'DistilGPT-2',
+        size: '82MB',
+        requiresWebGPU: false,
+        contextLength: 1024,
+        description: 'Fast, lightweight model suitable for all devices'
+      },
+      'onnx-community/Llama-3.2-1B-Instruct': {
+        name: 'Llama 3.2 1B Instruct',
+        size: '637MB',
+        requiresWebGPU: true,
+        contextLength: 2048,
+        description: 'High-quality instruction-following model (WebGPU required)'
+      },
+      'onnx-community/Llama-3.2-3B-Instruct': {
+        name: 'Llama 3.2 3B Instruct',
+        size: '1.9GB',
+        requiresWebGPU: true,
+        contextLength: 2048,
+        description: 'Advanced instruction model with superior reasoning (WebGPU + 8GB+ RAM)'
+      },
+      'Xenova/LaMini-GPT-774M': {
+        name: 'LaMini-GPT 774M',
+        size: '310MB',
+        requiresWebGPU: false,
+        contextLength: 1024,
+        description: 'Medium-sized model with good performance balance'
+      },
+      'Xenova/gpt2': {
+        name: 'GPT-2',
+        size: '124MB',
+        requiresWebGPU: false,
+        contextLength: 1024,
+        description: 'Classic GPT-2 model, reliable baseline'
+      }
+    };
+  }
+
+  async initialize(modelName?: string): Promise<void> {
+    const targetModel = modelName || this.currentModel;
+    
+    if (this.textGenerator && this.currentModel === targetModel) return;
+    if (this.isLoading) return;
     
     this.isLoading = true;
     try {
-      // Use a smaller model that can run efficiently in the browser
-      this.textGenerator = await pipeline('text-generation', 'Xenova/distilgpt2') as TextGenerationPipeline;
+      // Check backend capabilities for model compatibility
+      const capabilities = await backendDetector.detectCapabilities();
+      const modelConfig = this.supportedModels[targetModel];
+      
+      if (modelConfig?.requiresWebGPU && !capabilities.webgpu) {
+        console.warn(`Model ${targetModel} requires WebGPU but it's not available. Falling back to DistilGPT-2.`);
+        return this.initialize('Xenova/distilgpt2');
+      }
+
+      // Configure transformers.js for optimal performance
+      if (capabilities.webgpu && modelConfig?.requiresWebGPU) {
+        // Enable WebGPU for supported models (if available in the API)
+        try {
+          (env.backends.onnx.wasm as any).useGpu = true;
+          console.log('WebGPU enabled for model inference');
+        } catch {
+          console.log('WebGPU configuration not available in this version');
+        }
+      } else {
+        // Use WASM/CPU fallback
+        try {
+          (env.backends.onnx.wasm as any).useGpu = false;
+        } catch {
+          // Ignore if not available
+        }
+      }
+
+      // Set appropriate thread count based on device capabilities
+      if (capabilities.threads) {
+        env.backends.onnx.wasm.numThreads = Math.min(navigator.hardwareConcurrency, 4);
+      }
+
+      console.log(`Initializing ${modelConfig?.name || targetModel}...`);
+      this.textGenerator = await pipeline('text-generation', targetModel, {
+        quantized: !modelConfig?.requiresWebGPU, // Use quantization for non-WebGPU models
+      } as any) as TextGenerationPipeline;
+
+      this.currentModel = targetModel;
+      console.log(`Successfully loaded ${modelConfig?.name || targetModel}`);
     } catch (error) {
       console.error('Failed to initialize client-side LLM:', error);
+      
+      // Fallback to smaller model if large model fails
+      if (targetModel !== 'Xenova/distilgpt2') {
+        console.log('Falling back to DistilGPT-2...');
+        return this.initialize('Xenova/distilgpt2');
+      }
+      
       throw error;
     } finally {
       this.isLoading = false;
@@ -30,17 +134,31 @@ class ClientLLMService {
     }
 
     try {
-      const response = await this.textGenerator(prompt, {
+      const modelConfig = this.supportedModels[this.currentModel];
+      const isInstructModel = this.currentModel.includes('Instruct');
+      
+      // Format prompt appropriately for instruction models
+      const formattedPrompt = isInstructModel ? 
+        `<|start_header_id|>user<|end_header_id|>\n\n${prompt}<|eot_id|><|start_header_id|>assistant<|end_header_id|>\n\n` : 
+        prompt;
+
+      const response = await this.textGenerator(formattedPrompt, {
         max_new_tokens: maxTokens,
-        temperature: 0.7,
+        temperature: isInstructModel ? 0.6 : 0.7,
         do_sample: true,
         top_p: 0.9,
-        repetition_penalty: 1.1,
+        repetition_penalty: isInstructModel ? 1.05 : 1.1,
+        pad_token_id: 50256, // Ensure proper padding
       }) as any;
 
       // Extract the generated text, removing the input prompt
       const fullText = Array.isArray(response) ? response[0].generated_text : response.generated_text;
-      const generatedText = fullText.substring(prompt.length).trim();
+      let generatedText = fullText.substring(formattedPrompt.length).trim();
+      
+      // Clean up instruction model responses
+      if (isInstructModel) {
+        generatedText = generatedText.split('<|eot_id|>')[0].trim();
+      }
       
       return generatedText;
     } catch (error) {
@@ -113,11 +231,61 @@ class ClientLLMService {
     return this.textGenerator !== null && !this.isLoading;
   }
 
-  getLoadingStatus(): { isLoading: boolean; isReady: boolean } {
+  getLoadingStatus(): { isLoading: boolean; isReady: boolean; currentModel: string } {
     return {
       isLoading: this.isLoading,
-      isReady: this.isReady()
+      isReady: this.isReady(),
+      currentModel: this.currentModel
     };
+  }
+
+  getCurrentModel(): string {
+    return this.currentModel;
+  }
+
+  getCurrentModelConfig(): ModelConfig | undefined {
+    return this.supportedModels[this.currentModel];
+  }
+
+  getSupportedModels(): { [key: string]: ModelConfig } {
+    return this.supportedModels;
+  }
+
+  async switchModel(modelName: string): Promise<void> {
+    if (!this.supportedModels[modelName]) {
+      throw new Error(`Unsupported model: ${modelName}`);
+    }
+
+    if (this.currentModel === modelName && this.textGenerator) {
+      return; // Already using this model
+    }
+
+    // Clear current generator and initialize new model
+    this.textGenerator = null;
+    await this.initialize(modelName);
+  }
+
+  async getRecommendedModel(): Promise<string> {
+    const capabilities = await backendDetector.detectCapabilities();
+    const benchmark = await backendDetector.benchmarkFlops();
+    
+    // Check memory constraints (rough estimates)
+    const memoryMB = benchmark.deviceInfo.memory ? 
+      Math.round(benchmark.deviceInfo.memory / 1024 / 1024) : 0;
+
+    if (capabilities.webgpu && memoryMB > 6000) {
+      // High-end device: can handle 3B model
+      return 'onnx-community/Llama-3.2-3B-Instruct';
+    } else if (capabilities.webgpu && memoryMB > 2000) {
+      // Mid-range device: 1B model
+      return 'onnx-community/Llama-3.2-1B-Instruct';
+    } else if (memoryMB > 1000) {
+      // Low-end device with some memory: medium model
+      return 'Xenova/LaMini-GPT-774M';
+    } else {
+      // Very constrained device: smallest model
+      return 'Xenova/distilgpt2';
+    }
   }
 }
 

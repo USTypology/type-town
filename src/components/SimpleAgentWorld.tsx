@@ -1,10 +1,12 @@
 import React, { useEffect, useState } from 'react';
-import { Stage } from '@pixi/react';
+import { Stage, Container } from '@pixi/react';
 import { agentSimulation, Agent, Conversation } from '../lib/staticAgentSimulation';
 import { clientLLM } from '../lib/clientLLM';
 import { worldPersistence } from '../lib/worldPersistence';
 import UserControls from './UserControls';
 import WorldManager from './WorldManager';
+import BackendInfo from './BackendInfo';
+import ModelSelector from './ModelSelector';
 import { PixiStaticMap } from './PixiStaticMap';
 import { Character } from './Character';
 import { WorldMap } from '../lib/staticTypes';
@@ -51,6 +53,10 @@ export default function SimpleAgentWorld() {
   const [selectedAgent, setSelectedAgent] = useState<Agent | null>(null);
   const [userCharacterId, setUserCharacterId] = useState<string>();
   const [showConversationLog, setShowConversationLog] = useState(false);
+  const [cameraX, setCameraX] = useState(0);
+  const [cameraY, setCameraY] = useState(0);
+  const [isDragging, setIsDragging] = useState(false);
+  const [lastMousePos, setLastMousePos] = useState({ x: 0, y: 0 });
 
   useEffect(() => {
     // Initialize world persistence
@@ -97,13 +103,38 @@ export default function SimpleAgentWorld() {
   };
 
   const handleMapClick = (event: React.MouseEvent<HTMLDivElement>) => {
-    if (!userCharacterId) return;
+    if (!userCharacterId || isDragging) return;
 
     const rect = event.currentTarget.getBoundingClientRect();
-    const x = event.clientX - rect.left;
-    const y = event.clientY - rect.top;
+    const x = event.clientX - rect.left + cameraX;
+    const y = event.clientY - rect.top + cameraY;
 
     agentSimulation.moveUserCharacter(userCharacterId, { x, y });
+  };
+
+  const handleMouseDown = (event: React.MouseEvent<HTMLDivElement>) => {
+    setIsDragging(true);
+    setLastMousePos({ x: event.clientX, y: event.clientY });
+  };
+
+  const handleMouseMove = (event: React.MouseEvent<HTMLDivElement>) => {
+    if (!isDragging) return;
+    
+    const deltaX = event.clientX - lastMousePos.x;
+    const deltaY = event.clientY - lastMousePos.y;
+    
+    // Updated bounds for larger map: 1440x1024 map size
+    const maxCameraX = Math.max(0, (worldMapConfig.width * worldMapConfig.tileSize) - 1000);
+    const maxCameraY = Math.max(0, (worldMapConfig.height * worldMapConfig.tileSize) - 700);
+    
+    setCameraX(Math.max(0, Math.min(maxCameraX, cameraX - deltaX)));
+    setCameraY(Math.max(0, Math.min(maxCameraY, cameraY - deltaY)));
+    
+    setLastMousePos({ x: event.clientX, y: event.clientY });
+  };
+
+  const handleMouseUp = () => {
+    setIsDragging(false);
   };
 
   const handleUserCharacterCreated = (userId: string) => {
@@ -121,14 +152,8 @@ export default function SimpleAgentWorld() {
 
   return (
     <div className="w-full h-full flex flex-col">
-      <div className="bg-brown-800 text-white p-4 flex justify-between items-center">
-        <div>
-          <h2 className="text-2xl font-bold">AI Town - Live Simulation</h2>
-          <p className="text-sm opacity-80">
-            Agents using {clientLLM.isReady() ? '✅ Client-side LLM (DistilGPT-2)' : '🤖 Fallback AI (Personality-based responses)'}
-          </p>
-        </div>
-        <div className="flex gap-2">
+      <div className="bg-brown-800 text-white p-4 flex justify-end items-center flex-wrap gap-4">
+        <div className="flex gap-2 flex-wrap">
           <WorldManager 
             agents={agents}
             conversations={conversations}
@@ -152,86 +177,131 @@ export default function SimpleAgentWorld() {
         </div>
       </div>
 
-      <div className="flex-1 grid grid-cols-1 lg:grid-cols-3 gap-4 p-4">
+      <div className="flex-1 grid grid-cols-1 xl:grid-cols-5 gap-4 p-4 min-h-0">
         {/* PIXI Agent World Map */}
         <div 
-          className="lg:col-span-2 rounded-lg relative overflow-hidden" 
-          style={{ minHeight: '400px', width: '100%' }}
+          className="xl:col-span-4 rounded-lg relative overflow-hidden flex items-center justify-center cursor-grab active:cursor-grabbing bg-black" 
+          style={{ minHeight: '600px' }}
+          onClick={handleMapClick}
+          onMouseDown={handleMouseDown}
+          onMouseMove={handleMouseMove}
+          onMouseUp={handleMouseUp}
+          onMouseLeave={handleMouseUp}
         >
-          <Stage
-            width={Math.min(800, worldMapConfig.width * worldMapConfig.tileSize)}
-            height={Math.min(600, worldMapConfig.height * worldMapConfig.tileSize)}
-            options={{ 
-              backgroundColor: 0x87CEEB, 
-              antialias: false,
-              resolution: 1,
-            }}
-          >
-            {/* Render the world map */}
-            <PixiStaticMap map={worldMapConfig} />
-            
-            {/* Render agents as PIXI characters */}
+          <div className="w-full h-full max-w-full max-h-full">
+            <Stage
+              width={1000}
+              height={700}
+              options={{ 
+                backgroundColor: 0x000000, // Black background to eliminate grey areas
+                antialias: false,
+                resolution: 1,
+              }}
+            >
+            {/* Camera container for world positioning */}
+            <Container x={-cameraX} y={-cameraY}>
+              {/* Render the world map */}
+              <PixiStaticMap map={worldMapConfig} />
+              
+              {/* Render agents as PIXI characters */}
+              {agents.map(agent => {
+                const characterSheet = characterSpriteSheets[agent.character as keyof typeof characterSpriteSheets];
+                if (!characterSheet) {
+                  return null;
+                }
+                
+                return (
+                  <Character
+                    key={agent.id}
+                    textureUrl={characterSheet.url}
+                    spritesheetData={characterSheet.data}
+                    x={agent.position.x}
+                    y={agent.position.y}
+                    orientation={0}
+                    isMoving={agent.isMoving}
+                    isThinking={false}
+                    isSpeaking={!!agent.currentConversation}
+                    isViewer={agent.id === userCharacterId}
+                    onClick={() => {
+                      setSelectedAgent(selectedAgent?.id === agent.id ? null : agent);
+                      // If user has a character and clicked on a different NPC, auto-select for interaction
+                      if (userCharacterId && agent.id !== userCharacterId && !agent.isUserControlled) {
+                        // This will be used in UserControls to auto-populate the interaction
+                        window.dispatchEvent(new CustomEvent('npcSelected', { 
+                          detail: { npcId: agent.id, npcName: agent.name }
+                        }));
+                      }
+                    }}
+                  />
+                );
+              })}
+            </Container>
+            </Stage>
+          </div>
+
+          {/* HTML overlay for agent info (positioned absolutely) */}
+          <div className="absolute inset-0 pointer-events-none">
             {agents.map(agent => {
-              const characterSheet = characterSpriteSheets[agent.character as keyof typeof characterSpriteSheets];
-              if (!characterSheet) {
+              const screenX = agent.position.x - cameraX;
+              const screenY = agent.position.y - cameraY;
+              
+              // Only render if on screen
+              if (screenX < -100 || screenX > 1100 || screenY < -100 || screenY > 800) {
                 return null;
               }
               
               return (
-                <Character
-                  key={agent.id}
-                  textureUrl={characterSheet.url}
-                  spritesheetData={characterSheet.data}
-                  x={agent.position.x}
-                  y={agent.position.y}
-                  orientation={0}
-                  isMoving={agent.isMoving}
-                  isThinking={false}
-                  isSpeaking={!!agent.currentConversation}
-                  isViewer={agent.id === userCharacterId}
-                  onClick={() => setSelectedAgent(selectedAgent?.id === agent.id ? null : agent)}
-                />
-              );
-            })}
-          </Stage>
+                <div
+                  key={`${agent.id}-info`}
+                  className="absolute pointer-events-none"
+                  style={{
+                    left: `${screenX}px`,
+                    top: `${screenY - 20}px`, // Adjusted for better alignment with character center
+                    transform: 'translate(-50%, -100%)',
+                  }}
+                >
+                  {/* Agent name */}
+                  <div className="bg-black bg-opacity-75 text-white text-xs px-2 py-1 rounded whitespace-nowrap">
+                    {agent.name} {agent.isUserControlled ? '(You)' : ''}
+                    {agent.isMoving && (
+                      <div className="text-green-300">→ moving</div>
+                    )}
+                    {agent.currentConversation && (
+                      <div className="text-blue-300">💬 chatting</div>
+                    )}
+                  </div>
 
-          {/* HTML overlay for agent info (positioned absolutely) */}
-          <div className="absolute inset-0 pointer-events-none">
-            {agents.map(agent => (
-              <div
-                key={`${agent.id}-info`}
-                className="absolute pointer-events-none"
-                style={{
-                  left: `${agent.position.x}px`,
-                  top: `${agent.position.y - 40}px`,
-                  transform: 'translate(-50%, -100%)',
-                }}
-              >
-                {/* Agent name */}
-                <div className="bg-black bg-opacity-75 text-white text-xs px-2 py-1 rounded whitespace-nowrap">
-                  {agent.name} {agent.isUserControlled ? '(You)' : ''}
-                  {agent.isMoving && (
-                    <div className="text-green-300">→ moving</div>
-                  )}
-                  {agent.currentConversation && (
-                    <div className="text-blue-300">💬 chatting</div>
+                  {/* Show last message as speech bubble */}
+                  {agent.lastMessage && agent.lastMessageTime && Date.now() - agent.lastMessageTime < 10000 && (
+                    <div className="absolute top-full left-1/2 transform -translate-x-1/2 bg-white border-2 border-gray-300 rounded-lg p-2 text-sm shadow-lg max-w-xs mt-2">
+                      <div className="text-gray-800">{agent.lastMessage}</div>
+                      <div className="absolute bottom-full left-1/2 transform -translate-x-1/2 w-0 h-0 border-l-4 border-r-4 border-b-4 border-transparent border-b-white"></div>
+                    </div>
                   )}
                 </div>
-
-                {/* Show last message as speech bubble */}
-                {agent.lastMessage && agent.lastMessageTime && Date.now() - agent.lastMessageTime < 10000 && (
-                  <div className="absolute top-full left-1/2 transform -translate-x-1/2 bg-white border-2 border-gray-300 rounded-lg p-2 text-sm shadow-lg max-w-xs mt-2">
-                    <div className="text-gray-800">{agent.lastMessage}</div>
-                    <div className="absolute bottom-full left-1/2 transform -translate-x-1/2 w-0 h-0 border-l-4 border-r-4 border-b-4 border-transparent border-b-white"></div>
-                  </div>
-                )}
-              </div>
-            ))}
+              );
+            })}
           </div>
+          
+          {/* Camera controls hint */}
+          <div className="absolute top-2 right-2 bg-black bg-opacity-75 text-white text-xs px-2 py-1 rounded pointer-events-none">
+            Click & drag to explore • {userCharacterId ? 'Click to move' : 'Join as character to move'}
+          </div>
+          
+          {/* Loading/Error state overlay */}
+          {agents.length === 0 && !isSimulationRunning && (
+            <div className="absolute inset-0 flex items-center justify-center bg-black bg-opacity-50 text-white">
+              <div className="text-center p-6 bg-brown-800 rounded-lg">
+                <h3 className="text-xl font-bold mb-2">Welcome to Type Town!</h3>
+                <p className="mb-4">Click "Start Simulation" to populate the world with AI agents</p>
+                <p className="text-sm text-gray-300">Or create a character to join the simulation yourself</p>
+              </div>
+            </div>
+          )}
         </div>
 
         {/* Side Panel - Split between Agent Info and User Controls */}
-        <div className="space-y-4">
+        <div className="space-y-4 min-w-0">
           {/* User Controls */}
           <UserControls 
             userCharacterId={userCharacterId}
@@ -239,6 +309,12 @@ export default function SimpleAgentWorld() {
             onUserCharacterCreated={handleUserCharacterCreated}
             onUserCharacterRemoved={handleUserCharacterRemoved}
           />
+
+          {/* Backend Performance Info */}
+          <BackendInfo />
+
+          {/* Model Selector */}
+          <ModelSelector />
 
           {/* Agent Info Panel */}
           <div className="bg-brown-800 text-white rounded-lg p-4">
@@ -361,7 +437,9 @@ export default function SimpleAgentWorld() {
       {/* Status bar */}
       <div className="bg-gray-800 text-white p-2 text-sm flex justify-between">
         <div>
-          LLM Status: {clientLLM.isReady() ? '🟢 Ready (HF Transformers)' : '🟡 Fallback Mode'}
+          LLM Status: {clientLLM.isReady() ? 
+            `🟢 ${clientLLM.getCurrentModelConfig()?.name || clientLLM.getCurrentModel()}` : 
+            '🟡 Loading...'}
         </div>
         <div>
           Simulation: {isSimulationRunning ? '🟢 Running' : '🔴 Stopped'}
