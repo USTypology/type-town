@@ -5,6 +5,7 @@ import { clientLLM } from '../lib/clientLLM';
 import { worldPersistence } from '../lib/worldPersistence';
 import UserControls from './UserControls';
 import WorldManager from './WorldManager';
+import BackendInfo from './BackendInfo';
 import { PixiStaticMap } from './PixiStaticMap';
 import { Character } from './Character';
 import { WorldMap } from '../lib/staticTypes';
@@ -307,6 +308,9 @@ export default function SimpleAgentWorld() {
             onUserCharacterCreated={handleUserCharacterCreated}
             onUserCharacterRemoved={handleUserCharacterRemoved}
           />
+
+          {/* Backend Performance Info */}
+          <BackendInfo />
 
           {/* Agent Info Panel */}
           <div className="bg-brown-800 text-white rounded-lg p-4">

@@ -8,6 +8,8 @@
     "lint": "eslint .",
     "dev:frontend": "vite",
     "test": "NODE_OPTIONS=--experimental-vm-modules jest --verbose",
+    "test:playwright": "playwright test",
+    "test:playwright:ui": "playwright test --ui",
     "level-editor": "vite src/editor/",
     "le": "vite src/editor/"
   },
