@@ -9,14 +9,13 @@ import Button from './components/buttons/Button.tsx';
 import FreezeButton from './components/FreezeButton.tsx';
 import InteractButton from './components/buttons/InteractButton.tsx';
 import GameSimple from './components/GameSimple.tsx';
-import PoweredByStatic from './components/PoweredByConvex.tsx';
+
 
 export default function AppStatic() {
   const [helpModalOpen, setHelpModalOpen] = useState(false);
 
   return (
     <main className="relative flex min-h-screen flex-col items-center justify-between font-body game-background">
-      <PoweredByStatic />
 
       <ReactModal
         isOpen={helpModalOpen}
@@ -49,12 +48,10 @@ export default function AppStatic() {
 
       <div className="w-full lg:h-screen min-h-screen relative isolate overflow-hidden lg:p-8 shadow-2xl flex flex-col justify-start">
         <h1 className="mx-auto text-4xl p-3 sm:text-8xl lg:text-9xl font-bold font-display leading-none tracking-wide game-title w-full text-left sm:text-center sm:w-auto">
-          AI Town Static
+          Type Town
         </h1>
 
-        <div className="max-w-xs md:max-w-xl lg:max-w-none mx-auto my-4 text-center text-base sm:text-xl md:text-2xl text-white leading-tight shadow-solid">
-          Successfully migrated to static browser-only architecture
-        </div>
+
 
         <GameSimple />
 
