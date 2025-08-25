@@ -5,9 +5,9 @@
 
 export interface AnimatedSprite {
   sheet: string;
-  startFrame: number;
-  endFrame: number;
-  period: number;
+  startFrame?: number;
+  endFrame?: number;
+  period?: number;
   // Additional properties used by PixiStaticMap
   animation: string;
   x: number;
