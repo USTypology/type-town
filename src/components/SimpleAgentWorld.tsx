@@ -121,14 +121,14 @@ export default function SimpleAgentWorld() {
 
   return (
     <div className="w-full h-full flex flex-col">
-      <div className="bg-brown-800 text-white p-4 flex justify-between items-center">
+      <div className="bg-brown-800 text-white p-4 flex justify-between items-center flex-wrap gap-4">
         <div>
           <h2 className="text-2xl font-bold">AI Town - Live Simulation</h2>
           <p className="text-sm opacity-80">
             Agents using {clientLLM.isReady() ? '✅ Client-side LLM (DistilGPT-2)' : '🤖 Fallback AI (Personality-based responses)'}
           </p>
         </div>
-        <div className="flex gap-2">
+        <div className="flex gap-2 flex-wrap">
           <WorldManager 
             agents={agents}
             conversations={conversations}
@@ -152,21 +152,22 @@ export default function SimpleAgentWorld() {
         </div>
       </div>
 
-      <div className="flex-1 grid grid-cols-1 lg:grid-cols-3 gap-4 p-4">
+      <div className="flex-1 grid grid-cols-1 xl:grid-cols-4 gap-4 p-4 min-h-0">
         {/* PIXI Agent World Map */}
         <div 
-          className="lg:col-span-2 rounded-lg relative overflow-hidden" 
-          style={{ minHeight: '400px', width: '100%' }}
+          className="xl:col-span-3 rounded-lg relative overflow-hidden bg-sky-200 flex items-center justify-center" 
+          style={{ minHeight: '500px' }}
         >
-          <Stage
-            width={Math.min(800, worldMapConfig.width * worldMapConfig.tileSize)}
-            height={Math.min(600, worldMapConfig.height * worldMapConfig.tileSize)}
-            options={{ 
-              backgroundColor: 0x87CEEB, 
-              antialias: false,
-              resolution: 1,
-            }}
-          >
+          <div className="w-full h-full max-w-full max-h-full flex items-center justify-center">
+            <Stage
+              width={Math.min(720, worldMapConfig.width * worldMapConfig.tileSize)}
+              height={Math.min(480, worldMapConfig.height * worldMapConfig.tileSize)}
+              options={{ 
+                backgroundColor: 0x87CEEB, 
+                antialias: false,
+                resolution: 1,
+              }}
+            >
             {/* Render the world map */}
             <PixiStaticMap map={worldMapConfig} />
             
@@ -193,7 +194,8 @@ export default function SimpleAgentWorld() {
                 />
               );
             })}
-          </Stage>
+            </Stage>
+          </div>
 
           {/* HTML overlay for agent info (positioned absolutely) */}
           <div className="absolute inset-0 pointer-events-none">
@@ -228,10 +230,21 @@ export default function SimpleAgentWorld() {
               </div>
             ))}
           </div>
+          
+          {/* Loading/Error state overlay */}
+          {agents.length === 0 && !isSimulationRunning && (
+            <div className="absolute inset-0 flex items-center justify-center bg-black bg-opacity-50 text-white">
+              <div className="text-center p-6 bg-brown-800 rounded-lg">
+                <h3 className="text-xl font-bold mb-2">Welcome to Type Town!</h3>
+                <p className="mb-4">Click "Start Simulation" to populate the world with AI agents</p>
+                <p className="text-sm text-gray-300">Or create a character to join the simulation yourself</p>
+              </div>
+            </div>
+          )}
         </div>
 
         {/* Side Panel - Split between Agent Info and User Controls */}
-        <div className="space-y-4">
+        <div className="space-y-4 min-w-0">
           {/* User Controls */}
           <UserControls 
             userCharacterId={userCharacterId}
