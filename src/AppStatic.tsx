@@ -4,7 +4,7 @@ import a16zImg from '../assets/a16z.png';
 import starImg from '../assets/star.svg';
 import helpImg from '../assets/help.svg';
 import ReactModal from 'react-modal';
-import MusicButton from './components/buttons/MusicButton.tsx';
+import StrudelMusicButton from './components/buttons/StrudelMusicButton.tsx';
 import Button from './components/buttons/Button.tsx';
 
 import InteractButton from './components/buttons/InteractButton.tsx';
@@ -57,7 +57,7 @@ export default function AppStatic() {
 
         <footer className="justify-end bottom-0 left-0 w-full flex items-center mt-4 gap-3 p-6 flex-wrap pointer-events-none">
           <div className="flex gap-4 flex-grow pointer-events-none">
-            <MusicButton />
+            <StrudelMusicButton />
             <Button href="https://github.com/USTypology/ustypology.github.io" imgUrl={starImg}>
               Star
             </Button>

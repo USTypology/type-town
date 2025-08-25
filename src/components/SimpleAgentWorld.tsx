@@ -219,7 +219,16 @@ export default function SimpleAgentWorld() {
                     isThinking={false}
                     isSpeaking={!!agent.currentConversation}
                     isViewer={agent.id === userCharacterId}
-                    onClick={() => setSelectedAgent(selectedAgent?.id === agent.id ? null : agent)}
+                    onClick={() => {
+                      setSelectedAgent(selectedAgent?.id === agent.id ? null : agent);
+                      // If user has a character and clicked on a different NPC, auto-select for interaction
+                      if (userCharacterId && agent.id !== userCharacterId && !agent.isUserControlled) {
+                        // This will be used in UserControls to auto-populate the interaction
+                        window.dispatchEvent(new CustomEvent('npcSelected', { 
+                          detail: { npcId: agent.id, npcName: agent.name }
+                        }));
+                      }
+                    }}
                   />
                 );
               })}
@@ -244,7 +253,7 @@ export default function SimpleAgentWorld() {
                   className="absolute pointer-events-none"
                   style={{
                     left: `${screenX}px`,
-                    top: `${screenY - 16}px`,
+                    top: `${screenY - 20}px`, // Adjusted for better alignment with character center
                     transform: 'translate(-50%, -100%)',
                   }}
                 >
