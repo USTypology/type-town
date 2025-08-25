@@ -17,7 +17,7 @@ import { data as f5SpritesheetData } from '../../data/spritesheets/f5';
 import { data as f6SpritesheetData } from '../../data/spritesheets/f6';
 
 // Character sprite mapping
-const characterSpriteSheets = {
+export const characterSpriteSheets = {
   'f1': { data: f1SpritesheetData, url: '/assets/32x32folk.png' },
   'f2': { data: f2SpritesheetData, url: '/assets/32x32folk.png' },
   'f3': { data: f3SpritesheetData, url: '/assets/32x32folk.png' },
@@ -27,7 +27,7 @@ const characterSpriteSheets = {
 };
 
 // World map configuration based on gentle.js data
-const worldMapConfig: WorldMap = {
+export const worldMapConfig: WorldMap = {
   bgTiles: gentleMap.bgtiles,
   objectTiles: gentleMap.objmap || [[]],
   decorTiles: [[]],
