@@ -390,7 +390,7 @@ export class StaticAgentSimulation {
   private cleanResponse(response: string, characterName: string): string {
     // Clean the response similar to the existing clientLLM implementation
     response = response.replace(new RegExp(`^${characterName}:?\\s*`, 'i'), '');
-    response = response.replace(/\n.*$/s, ''); // Remove everything after first newline
+    response = response.replace(/\n.*$/gs, ''); // Remove everything after first newline
     response = response.substring(0, 200).trim();
     
     // Ensure it doesn't end mid-sentence
