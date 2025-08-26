@@ -1,13 +1,14 @@
 import React, { useState, useEffect } from 'react';
-import { clientLLM, ModelConfig } from '../lib/clientLLM';
+import { clientLLMWorkerService } from '../lib/clientLLMWorkerService';
 import { backendDetector } from '../lib/backendDetection';
+import { SUPPORTED_MODELS } from '../lib/llmConfig';
 
 interface ModelSelectorProps {
   className?: string;
 }
 
 export default function ModelSelector({ className = '' }: ModelSelectorProps) {
-  const [supportedModels, setSupportedModels] = useState<{ [key: string]: ModelConfig }>({});
+  const [supportedModels, setSupportedModels] = useState<{ [key: string]: any }>({});
   const [currentModel, setCurrentModel] = useState<string>('');
   const [isLoading, setIsLoading] = useState(false);
   const [recommendedModel, setRecommendedModel] = useState<string>('');
@@ -20,15 +21,32 @@ export default function ModelSelector({ className = '' }: ModelSelectorProps) {
 
   const initializeModelInfo = async () => {
     try {
-      const models = clientLLM.getSupportedModels();
-      const current = clientLLM.getCurrentModel();
-      const recommended = await clientLLM.getRecommendedModel();
+      setSupportedModels(SUPPORTED_MODELS);
+      const current = clientLLMWorkerService.getCurrentModel();
       const caps = await backendDetector.detectCapabilities();
       
-      setSupportedModels(models);
       setCurrentModel(current);
-      setRecommendedModel(recommended);
       setCapabilities(caps);
+      
+      // Simple model recommendation based on capabilities
+      let recommended = 'Xenova/distilgpt2'; // Default fallback
+      if (caps.webgpu) {
+        // Estimate available memory (rough approximation)
+        const memoryMB = (performance as any)?.memory?.usedJSHeapSize ? 
+          Math.round((performance as any).memory.usedJSHeapSize / 1024 / 1024) : 0;
+        
+        if (memoryMB > 8000) {
+          recommended = 'onnx-community/Llama-3.2-3B-Instruct';
+        } else if (memoryMB > 4000) {
+          recommended = 'onnx-community/Llama-3.2-1B-Instruct';
+        } else {
+          recommended = 'Xenova/LaMini-GPT-774M';
+        }
+      } else if (caps.simd) {
+        recommended = 'Xenova/LaMini-GPT-774M';
+      }
+      
+      setRecommendedModel(recommended);
     } catch (error) {
       console.error('Failed to initialize model info:', error);
     }
@@ -39,8 +57,9 @@ export default function ModelSelector({ className = '' }: ModelSelectorProps) {
 
     setIsLoading(true);
     try {
-      await clientLLM.switchModel(modelName);
+      await clientLLMWorkerService.switchModel(modelName);
       setCurrentModel(modelName);
+      console.log(`Successfully switched to ${modelName}`);
     } catch (error) {
       console.error('Failed to switch model:', error);
       alert(`Failed to load model: ${error}`);
@@ -49,14 +68,14 @@ export default function ModelSelector({ className = '' }: ModelSelectorProps) {
     }
   };
 
-  const getModelStatusIcon = (modelKey: string, config: ModelConfig) => {
+  const getModelStatusIcon = (modelKey: string, config: any) => {
     if (modelKey === currentModel) return '✅';
     if (modelKey === recommendedModel) return '⭐';
     if (config.requiresWebGPU && !capabilities?.webgpu) return '❌';
     return '⚪';
   };
 
-  const getModelStatusText = (modelKey: string, config: ModelConfig) => {
+  const getModelStatusText = (modelKey: string, config: any) => {
     if (modelKey === currentModel) return 'Current';
     if (modelKey === recommendedModel) return 'Recommended';
     if (config.requiresWebGPU && !capabilities?.webgpu) return 'WebGPU Required';

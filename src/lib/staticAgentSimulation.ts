@@ -1,5 +1,5 @@
 // Simple browser-based agent simulation for AI Town
-import { clientLLM } from './clientLLM';
+import { clientLLMWorkerService } from './clientLLMWorkerService';
 
 export interface Position {
   x: number;
@@ -252,10 +252,11 @@ export class StaticAgentSimulation {
     let message: string;
 
     try {
-      // Try to use client LLM if available
-      if (clientLLM.isReady()) {
+      // Try to use client LLM worker service if available
+      const workerStatus = clientLLMWorkerService.getStatus();
+      if (workerStatus.isInitialized && workerStatus.hasWorker) {
         const prompt = this.buildConversationPrompt(agent, otherAgent, conversation, type);
-        message = await clientLLM.generateResponse(prompt, 100);
+        message = await clientLLMWorkerService.generateText(prompt, 100);
         message = this.cleanResponse(message, agent.name);
       } else {
         // Fallback to predefined messages based on agent personality

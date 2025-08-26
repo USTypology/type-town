@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { Stage, Container } from '@pixi/react';
 import { agentSimulation, Agent, Conversation } from '../lib/staticAgentSimulation';
-import { clientLLM } from '../lib/clientLLM';
+import { clientLLMWorkerService } from '../lib/clientLLMWorkerService';
 import { worldPersistence } from '../lib/worldPersistence';
 import UserControls from './UserControls';
 import WorldManager from './WorldManager';
@@ -75,13 +75,14 @@ export default function SimpleAgentWorld() {
     };
     initPersistence();
 
-    // Initialize LLM
+    // Initialize LLM Worker Service
     const initLLM = async () => {
       try {
-        await clientLLM.initialize();
+        await clientLLMWorkerService.initialize();
         setLLMReady(true);
+        console.log('Client LLM Worker Service initialized successfully');
       } catch (error) {
-        console.error('Failed to initialize LLM:', error);
+        console.error('Failed to initialize LLM Worker Service:', error);
       }
     };
     initLLM();
@@ -510,8 +511,8 @@ export default function SimpleAgentWorld() {
       {/* Status bar */}
       <div className="bg-gray-800 text-white p-2 text-sm flex justify-between">
         <div>
-          LLM Status: {clientLLM.isReady() ? 
-            `🟢 ${clientLLM.getCurrentModelConfig()?.name || clientLLM.getCurrentModel()}` : 
+          LLM Status: {llmReady ? 
+            `🟢 ${clientLLMWorkerService.getCurrentModel()}` : 
             '🟡 Loading...'}
         </div>
         <div>
@@ -519,8 +520,8 @@ export default function SimpleAgentWorld() {
         </div>
       </div>
 
-      {/* Client LLM Processor for background processing - disabled for now */}
-      {/* <ClientLLMProcessor /> */}
+      {/* Client LLM Processor for background processing */}
+      <ClientLLMProcessor />
     </div>
   );
 }
