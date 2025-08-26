@@ -28,8 +28,32 @@ export interface Agent {
 export interface Conversation {
   id: string;
   participants: string[];
-  messages: { agentId: string; text: string; timestamp: number }[];
+  messages: ConversationMessage[];
   startTime: number;
+  lastActivity: number;
+}
+
+export interface ConversationMessage {
+  agentId: string;
+  text: string;
+  timestamp: number;
+}
+
+// Enhanced AI decision system interfaces
+export interface DecisionOption {
+  type: 'socialize' | 'explore' | 'return_home' | 'idle';
+  priority: number;
+  target: Agent | Position | null;
+}
+
+export interface NPCStatus {
+  id: string;
+  name: string;
+  currentActivity: 'moving' | 'talking' | 'idle';
+  currentGoals: string[];
+  recentMemories: string[];
+  position: Position;
+  canBeControlled: boolean;
 }
 
 export class StaticAgentSimulation {
@@ -192,7 +216,8 @@ export class StaticAgentSimulation {
       id: conversationId,
       participants: [agent1Id, agent2Id],
       messages: [],
-      startTime: Date.now()
+      startTime: Date.now(),
+      lastActivity: Date.now()
     };
 
     this.conversations.set(conversationId, conversation);
@@ -205,6 +230,11 @@ export class StaticAgentSimulation {
 
     // Generate first message from agent1
     await this.generateConversationMessage(agent1Id, 'start');
+  }
+
+  private initiateConversation(initiator: Agent, target: Agent) {
+    // Use the existing startConversation method
+    this.startConversation(initiator.id, target.id);
   }
 
   private async generateConversationMessage(agentId: string, type: 'start' | 'continue') {
@@ -401,23 +431,224 @@ export class StaticAgentSimulation {
 
   private planNewActions() {
     this.agents.forEach(agent => {
-      if (!agent.currentConversation && !agent.isMoving && Math.random() < 0.15) {
-        // 15% chance to start moving randomly (increased from 10%)
-        console.log(`${agent.name} is starting to move to a new location`);
-        this.moveAgentRandomly(agent);
+      if (!agent.currentConversation && !agent.isMoving && Math.random() < 0.20) {
+        // Enhanced decision making for NPCs
+        this.makeIntelligentDecision(agent);
       }
     });
   }
 
-  private moveAgentRandomly(agent: Agent) {
-    // Map dimensions: 45 tiles × 32px/tile = 1440px width, 32 tiles × 32px/tile = 1024px height
+  private makeIntelligentDecision(agent: Agent) {
+    if (agent.isUserControlled) return; // Skip user-controlled agents
+
+    const nearbyAgents = this.findNearbyAgents(agent, 200); // Find agents within 200px
+    const availableAgents = nearbyAgents.filter(a => !a.currentConversation && !a.isMoving);
+    
+    // Decision priorities based on agent's goals and context
+    const decisions = this.evaluateDecisionOptions(agent, availableAgents);
+    
+    // Execute the highest priority decision
+    const chosenDecision = this.selectDecisionWithRandomness(decisions);
+    this.executeDecision(agent, chosenDecision, availableAgents);
+  }
+
+  private findNearbyAgents(agent: Agent, radius: number): Agent[] {
+    return Array.from(this.agents.values()).filter(otherAgent => {
+      if (otherAgent.id === agent.id) return false;
+      const distance = this.getDistance(agent.position, otherAgent.position);
+      return distance <= radius;
+    });
+  }
+
+  private evaluateDecisionOptions(agent: Agent, availableAgents: Agent[]): DecisionOption[] {
+    const decisions: DecisionOption[] = [];
+
+    // 1. Socialize with nearby agents (higher priority for social characters)
+    if (availableAgents.length > 0) {
+      const socialScore = this.getSocialScore(agent);
+      decisions.push({
+        type: 'socialize',
+        priority: socialScore * 0.4,
+        target: availableAgents[0] // Choose closest available agent
+      });
+    }
+
+    // 2. Explore new areas (good for curious characters)
+    const explorationScore = this.getExplorationScore(agent);
+    decisions.push({
+      type: 'explore',
+      priority: explorationScore * 0.3,
+      target: this.findInterestingDestination(agent)
+    });
+
+    // 3. Return to a familiar location (comfort-seeking behavior)
+    if (agent.memories && agent.memories.length > 0) {
+      decisions.push({
+        type: 'return_home',
+        priority: 0.2,
+        target: this.getHomeLocation(agent)
+      });
+    }
+
+    // 4. Idle/rest (always an option)
+    decisions.push({
+      type: 'idle',
+      priority: 0.1,
+      target: null
+    });
+
+    return decisions.sort((a, b) => b.priority - a.priority);
+  }
+
+  private getSocialScore(agent: Agent): number {
+    // Base social tendency from identity
+    let score = 0.5;
+    if (agent.identity?.toLowerCase().includes('social') || 
+        agent.identity?.toLowerCase().includes('friendly') ||
+        agent.identity?.toLowerCase().includes('outgoing')) {
+      score += 0.3;
+    }
+    if (agent.identity?.toLowerCase().includes('shy') || 
+        agent.identity?.toLowerCase().includes('quiet')) {
+      score -= 0.2;
+    }
+    
+    // Recent conversation history affects sociability
+    const recentConversations = this.getRecentConversationCount(agent);
+    if (recentConversations > 2) score -= 0.1; // Less likely to socialize if recently active
+    
+    return Math.max(0, Math.min(1, score));
+  }
+
+  private getExplorationScore(agent: Agent): number {
+    let score = 0.5;
+    if (agent.identity?.toLowerCase().includes('curious') || 
+        agent.identity?.toLowerCase().includes('explorer') ||
+        agent.identity?.toLowerCase().includes('adventurous')) {
+      score += 0.4;
+    }
+    if (agent.identity?.toLowerCase().includes('homebody') || 
+        agent.identity?.toLowerCase().includes('cautious')) {
+      score -= 0.2;
+    }
+    return Math.max(0, Math.min(1, score));
+  }
+
+  private findInterestingDestination(agent: Agent): Position {
+    // Find locations that might be interesting (near buildings, water, etc.)
     const mapWidth = 1440;
     const mapHeight = 1024;
-    agent.targetPosition = {
-      x: Math.random() * (mapWidth - 100) + 50, // Add some margin from edges
-      y: Math.random() * (mapHeight - 100) + 50
+    
+    // Interesting areas based on the map
+    const interestingAreas = [
+      { x: 300, y: 400 }, // Near the buildings
+      { x: 800, y: 300 }, // Near the water
+      { x: 600, y: 600 }, // Central area
+      { x: 200, y: 800 }, // Forest area
+      { x: 1000, y: 500 }, // Eastern area
+    ];
+    
+    // Choose a random interesting area, or completely random if none appeal
+    if (Math.random() < 0.7) {
+      const area = interestingAreas[Math.floor(Math.random() * interestingAreas.length)];
+      return {
+        x: area.x + (Math.random() - 0.5) * 200, // Add some randomness around the area
+        y: area.y + (Math.random() - 0.5) * 200
+      };
+    } else {
+      return {
+        x: Math.random() * (mapWidth - 100) + 50,
+        y: Math.random() * (mapHeight - 100) + 50
+      };
+    }
+  }
+
+  private getHomeLocation(agent: Agent): Position {
+    // For simplicity, use a consistent "home" area based on agent ID
+    const hash = agent.id.split('').reduce((a, b) => {
+      a = ((a << 5) - a) + b.charCodeAt(0);
+      return a & a;
+    }, 0);
+    
+    return {
+      x: Math.abs(hash % 800) + 200,
+      y: Math.abs((hash >> 8) % 600) + 200
     };
-    agent.isMoving = true;
+  }
+
+  private getRecentConversationCount(agent: Agent): number {
+    const now = Date.now();
+    return agent.memories?.filter(memory => 
+      memory.includes('conversation') && 
+      now - (agent.lastMessageTime || 0) < 300000 // Last 5 minutes
+    ).length || 0;
+  }
+
+  private selectDecisionWithRandomness(decisions: DecisionOption[]): DecisionOption {
+    // Weighted random selection with bias toward higher priority
+    const weights = decisions.map(d => Math.pow(d.priority, 2)); // Square to emphasize differences
+    const totalWeight = weights.reduce((sum, weight) => sum + weight, 0);
+    
+    let random = Math.random() * totalWeight;
+    for (let i = 0; i < decisions.length; i++) {
+      random -= weights[i];
+      if (random <= 0) {
+        return decisions[i];
+      }
+    }
+    
+    return decisions[0]; // Fallback
+  }
+
+  private executeDecision(agent: Agent, decision: DecisionOption, availableAgents: Agent[]) {
+    console.log(`${agent.name} decided to ${decision.type} (priority: ${decision.priority.toFixed(2)})`);
+    
+    switch (decision.type) {
+      case 'socialize':
+        if (decision.target && typeof decision.target === 'object' && 'id' in decision.target) {
+          // Target is an Agent
+          const targetAgent = decision.target as Agent;
+          if (availableAgents.includes(targetAgent)) {
+            this.initiateConversation(agent, targetAgent);
+          }
+        }
+        break;
+      
+      case 'explore':
+        if (decision.target && typeof decision.target === 'object' && 'x' in decision.target) {
+          // Target is a Position
+          const targetPosition = decision.target as Position;
+          agent.targetPosition = targetPosition;
+          agent.isMoving = true;
+          // Add memory of exploration
+          if (!agent.memories) agent.memories = [];
+          agent.memories.push(`Decided to explore area at ${targetPosition.x}, ${targetPosition.y}`);
+          if (agent.memories.length > 10) agent.memories = agent.memories.slice(-10);
+        }
+        break;
+      
+      case 'return_home':
+        if (decision.target && typeof decision.target === 'object' && 'x' in decision.target) {
+          // Target is a Position
+          const targetPosition = decision.target as Position;
+          agent.targetPosition = targetPosition;
+          agent.isMoving = true;
+          if (!agent.memories) agent.memories = [];
+          agent.memories.push(`Returning to familiar area`);
+        }
+        break;
+      
+      case 'idle':
+        // Agent chooses to stay put and rest
+        if (!agent.memories) agent.memories = [];
+        agent.memories.push(`Taking a moment to rest and observe surroundings`);
+        break;
+    }
+  }
+
+  private moveAgentRandomly(agent: Agent) {
+    // This is now handled by the intelligent decision system
+    this.makeIntelligentDecision(agent);
   }
 
   private getDistance(pos1: Position, pos2: Position): number {
@@ -582,6 +813,124 @@ export class StaticAgentSimulation {
     if (this.onUpdate) {
       this.onUpdate();
     }
+  }
+
+  // Enhanced NPC Control Methods
+  public giveNPCGoal(npcId: string, goal: string): boolean {
+    const npc = this.agents.get(npcId);
+    if (!npc || npc.isUserControlled) {
+      return false;
+    }
+
+    if (!npc.goals) npc.goals = [];
+    npc.goals.unshift(goal); // Add to front as highest priority
+    if (npc.goals.length > 5) npc.goals = npc.goals.slice(0, 5); // Limit to 5 goals
+
+    if (!npc.memories) npc.memories = [];
+    npc.memories.push(`Given new goal: ${goal}`);
+    
+    console.log(`${npc.name} received new goal: ${goal}`);
+    
+    // Trigger immediate decision making with the new goal
+    this.makeIntelligentDecision(npc);
+    
+    if (this.onUpdate) {
+      this.onUpdate();
+    }
+
+    return true;
+  }
+
+  public directNPCToLocation(npcId: string, targetPosition: Position, purpose?: string): boolean {
+    const npc = this.agents.get(npcId);
+    if (!npc || npc.isUserControlled) {
+      return false;
+    }
+
+    npc.targetPosition = targetPosition;
+    npc.isMoving = true;
+    
+    if (!npc.memories) npc.memories = [];
+    const purposeText = purpose ? ` to ${purpose}` : '';
+    npc.memories.push(`Directed to move to location (${targetPosition.x}, ${targetPosition.y})${purposeText}`);
+    
+    if (!npc.goals) npc.goals = [];
+    npc.goals.unshift(purpose || `Move to specified location`);
+    
+    console.log(`${npc.name} directed to move to (${targetPosition.x}, ${targetPosition.y})${purposeText}`);
+    
+    if (this.onUpdate) {
+      this.onUpdate();
+    }
+
+    return true;
+  }
+
+  public makeNPCTalkTo(npcId: string, targetNpcId: string): boolean {
+    const npc = this.agents.get(npcId);
+    const target = this.agents.get(targetNpcId);
+    
+    if (!npc || !target || npc.isUserControlled || target.isUserControlled) {
+      return false;
+    }
+
+    if (npc.currentConversation || target.currentConversation) {
+      return false; // One of them is already in conversation
+    }
+
+    // First move NPC closer to target if they're far apart
+    const distance = this.getDistance(npc.position, target.position);
+    if (distance > 100) {
+      // Move NPC closer first
+      const direction = {
+        x: target.position.x - npc.position.x,
+        y: target.position.y - npc.position.y
+      };
+      const magnitude = Math.sqrt(direction.x * direction.x + direction.y * direction.y);
+      npc.targetPosition = {
+        x: target.position.x - (direction.x / magnitude) * 50, // Stop 50 pixels away
+        y: target.position.y - (direction.y / magnitude) * 50
+      };
+      npc.isMoving = true;
+      
+      // Set a goal to talk once they get there
+      if (!npc.goals) npc.goals = [];
+      npc.goals.unshift(`Talk to ${target.name}`);
+    } else {
+      // Start conversation immediately
+      this.initiateConversation(npc, target);
+    }
+    
+    console.log(`${npc.name} instructed to talk to ${target.name}`);
+    
+    if (this.onUpdate) {
+      this.onUpdate();
+    }
+
+    return true;
+  }
+
+  public getNPCStatus(npcId: string): NPCStatus | null {
+    const npc = this.agents.get(npcId);
+    if (!npc) return null;
+
+    return {
+      id: npc.id,
+      name: npc.name,
+      currentActivity: npc.isMoving ? 'moving' : 
+                      npc.currentConversation ? 'talking' : 'idle',
+      currentGoals: npc.goals || [],
+      recentMemories: (npc.memories || []).slice(-5),
+      position: npc.position,
+      canBeControlled: !npc.isUserControlled
+    };
+  }
+
+  public getAllNPCStatuses(): NPCStatus[] {
+    return Array.from(this.agents.values())
+      .filter(agent => !agent.isUserControlled)
+      .map(agent => this.getNPCStatus(agent.id)!)
+      .filter(status => status !== null);
   }
 }
 
