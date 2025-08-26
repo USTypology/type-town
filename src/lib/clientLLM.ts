@@ -273,19 +273,66 @@ class ClientLLMService {
     const memoryMB = benchmark.deviceInfo.memory ? 
       Math.round(benchmark.deviceInfo.memory / 1024 / 1024) : 0;
 
-    if (capabilities.webgpu && memoryMB > 6000) {
+    // More sophisticated model selection based on actual capabilities
+    if (capabilities.webgpu && memoryMB > 8000) {
       // High-end device: can handle 3B model
+      console.log('Recommending Llama 3.2 3B for high-end device with WebGPU');
       return 'onnx-community/Llama-3.2-3B-Instruct';
-    } else if (capabilities.webgpu && memoryMB > 2000) {
+    } else if (capabilities.webgpu && memoryMB > 4000) {
       // Mid-range device: 1B model
+      console.log('Recommending Llama 3.2 1B for mid-range device with WebGPU');
       return 'onnx-community/Llama-3.2-1B-Instruct';
-    } else if (memoryMB > 1000) {
-      // Low-end device with some memory: medium model
+    } else if (capabilities.simd && memoryMB > 2000) {
+      // SIMD-capable device: medium model
+      console.log('Recommending LaMini-GPT 774M for SIMD-capable device');
       return 'Xenova/LaMini-GPT-774M';
+    } else if (capabilities.wasm && memoryMB > 1000) {
+      // Standard device: GPT-2
+      console.log('Recommending GPT-2 for standard device');
+      return 'Xenova/gpt2';
     } else {
       // Very constrained device: smallest model
+      console.log('Recommending DistilGPT-2 for constrained device');
       return 'Xenova/distilgpt2';
     }
+  }
+
+  // Validate model compatibility before switching
+  async validateModelCompatibility(modelName: string): Promise<{ compatible: boolean; reason?: string }> {
+    const capabilities = await backendDetector.detectCapabilities();
+    const modelConfig = this.supportedModels[modelName];
+    
+    if (!modelConfig) {
+      return { compatible: false, reason: `Model ${modelName} is not supported` };
+    }
+
+    if (modelConfig.requiresWebGPU && !capabilities.webgpu) {
+      return { 
+        compatible: false, 
+        reason: `Model ${modelConfig.name} requires WebGPU but it's not available on this device` 
+      };
+    }
+
+    // Check rough memory requirements
+    const benchmark = await backendDetector.benchmarkFlops();
+    const memoryMB = benchmark.deviceInfo.memory ? 
+      Math.round(benchmark.deviceInfo.memory / 1024 / 1024) : 0;
+
+    if (modelConfig.name.includes('3B') && memoryMB < 6000) {
+      return {
+        compatible: false,
+        reason: `3B model requires at least 6GB RAM, but device has ~${Math.round(memoryMB/1024)}GB`
+      };
+    }
+
+    if (modelConfig.name.includes('1B') && memoryMB < 3000) {
+      return {
+        compatible: false,
+        reason: `1B model requires at least 3GB RAM, but device has ~${Math.round(memoryMB/1024)}GB`
+      };
+    }
+
+    return { compatible: true };
   }
 }
 

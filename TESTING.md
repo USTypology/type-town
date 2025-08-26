@@ -1,10 +1,152 @@
-# Static Migration Testing Documentation
+# AI Model Testing & Validation Guide
 
-This document describes the comprehensive test suite created for the Convex to static migration.
+This guide provides comprehensive testing procedures to ensure Llama 3B and 1B models work correctly with WebGPU/SIMD optimizations in AI Town.
 
-## Overview
+## 🧪 Automated Testing Framework
 
-The test suite verifies that the AI Town application has been successfully migrated from Convex to a fully static, serverless browser-only architecture using DuckDB-WASM, PGLite, and Parquet files.
+### Browser Compatibility Tests
+
+#### WebGPU Availability Test
+```javascript
+// Test WebGPU support and functionality
+async function testWebGPUSupport() {
+  const tests = {
+    'WebGPU API Available': 'gpu' in navigator,
+    'Adapter Request': false,
+    'Device Creation': false,
+    'Compute Shader': false
+  };
+  
+  try {
+    if (tests['WebGPU API Available']) {
+      const adapter = await navigator.gpu.requestAdapter();
+      tests['Adapter Request'] = !!adapter;
+      
+      if (adapter) {
+        const device = await adapter.requestDevice();
+        tests['Device Creation'] = !!device;
+        
+        // Test basic compute shader
+        const computeShader = device.createShaderModule({
+          code: `
+            @compute @workgroup_size(1)
+            fn main() {
+              // Basic compute test
+            }
+          `
+        });
+        tests['Compute Shader'] = !!computeShader;
+      }
+    }
+  } catch (error) {
+    console.error('WebGPU test failed:', error);
+  }
+  
+  return tests;
+}
+```
+
+#### SIMD Capability Test
+```javascript
+// Test WebAssembly SIMD support
+function testSIMDSupport() {
+  try {
+    // Simple SIMD bytecode validation
+    const simdCode = new Uint8Array([
+      0x00, 0x61, 0x73, 0x6d, // magic
+      0x01, 0x00, 0x00, 0x00, // version
+      0x01, 0x05, 0x01, 0x60, // type section
+      0x00, 0x01, 0x7b,       // v128 result
+    ]);
+    
+    return WebAssembly.validate(simdCode);
+  } catch {
+    return false;
+  }
+}
+```
+
+### Model Loading Tests
+
+#### Llama 3B Model Test
+```javascript
+// Test Llama 3.2 3B Instruct model loading and inference
+async function testLlama3B() {
+  const testResults = {
+    'Model Download': false,
+    'Initialization': false,
+    'WebGPU Backend': false,
+    'Basic Inference': false,
+    'Response Quality': false,
+    'Performance': null
+  };
+  
+  try {
+    const { clientLLMWorkerService } = await import('./src/lib/clientLLMWorkerService');
+    
+    // Test model loading
+    console.time('Llama3B-Load');
+    await clientLLMWorkerService.initialize('onnx-community/Llama-3.2-3B-Instruct');
+    console.timeEnd('Llama3B-Load');
+    testResults['Model Download'] = true;
+    testResults['Initialization'] = true;
+    
+    // Check backend
+    const status = clientLLMWorkerService.getStatus();
+    testResults['WebGPU Backend'] = status.capabilities.webGPU;
+    
+    // Test basic inference
+    console.time('Llama3B-Inference');
+    const response = await clientLLMWorkerService.generateText(
+      'Hello, my name is Alice and I love exploring new places. What should I do today?',
+      50
+    );
+    const inferenceTime = console.timeEnd('Llama3B-Inference');
+    
+    testResults['Basic Inference'] = response.length > 0;
+    testResults['Response Quality'] = evaluateResponseQuality(response);
+    testResults['Performance'] = inferenceTime;
+    
+  } catch (error) {
+    console.error('Llama 3B test failed:', error);
+    testResults.error = error.message;
+  }
+  
+  return testResults;
+}
+```
+
+## 🎯 Manual Testing Procedures
+
+### Interactive Model Testing
+
+#### Step 1: Hardware Capability Check
+```javascript
+// Run in browser console on AI Town page
+(async () => {
+  const { backendDetector } = await import('./src/lib/backendDetection');
+  const capabilities = await backendDetector.detectCapabilities();
+  const benchmark = await backendDetector.benchmarkFlops();
+  
+  console.log('Device Capabilities:', capabilities);
+  console.log('Performance Benchmark:', benchmark);
+  console.log('Recommended Model:', await clientLLM.getRecommendedModel());
+})();
+```
+
+## ✅ Validation Checklist
+
+### Pre-Deployment Testing
+- [ ] **Hardware detection** works correctly across devices
+- [ ] **Model loading** succeeds for all supported models
+- [ ] **WebGPU acceleration** activates when available
+- [ ] **SIMD optimization** works on compatible browsers
+- [ ] **Fallback systems** handle unsupported configurations
+- [ ] **Memory management** prevents browser crashes
+- [ ] **Model switching** works seamlessly
+- [ ] **Response quality** meets expectations for each model
+- [ ] **Performance benchmarks** show expected speeds
+- [ ] **Error handling** provides useful feedback
 
 ## Test Structure
 

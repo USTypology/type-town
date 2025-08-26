@@ -7,9 +7,11 @@ import UserControls from './UserControls';
 import WorldManager from './WorldManager';
 import BackendInfo from './BackendInfo';
 import ModelSelector from './ModelSelector';
+import NPCControlPanel from './NPCControlPanel';
 import { PixiStaticMap } from './PixiStaticMap';
 import { Character } from './Character';
 import { WorldMap } from '../lib/staticTypes';
+import { ClientLLMProcessor } from '../hooks/useClientLLM';
 import * as gentleMap from '../../data/gentle.js';
 import { data as f1SpritesheetData } from '../../data/spritesheets/f1';
 import { data as f2SpritesheetData } from '../../data/spritesheets/f2';
@@ -57,6 +59,9 @@ export default function SimpleAgentWorld() {
   const [cameraY, setCameraY] = useState(0);
   const [isDragging, setIsDragging] = useState(false);
   const [lastMousePos, setLastMousePos] = useState({ x: 0, y: 0 });
+  const [canvasSize, setCanvasSize] = useState({ width: 1000, height: 700 });
+  const canvasContainerRef = React.useRef<HTMLDivElement>(null);
+  const [npcDirectionMode, setNpcDirectionMode] = useState<{ active: boolean; npcId: string }>({ active: false, npcId: '' });
 
   useEffect(() => {
     // Initialize world persistence
@@ -92,6 +97,44 @@ export default function SimpleAgentWorld() {
     };
   }, []);
 
+  // Handle canvas resizing
+  useEffect(() => {
+    const updateCanvasSize = () => {
+      if (canvasContainerRef.current) {
+        const { clientWidth, clientHeight } = canvasContainerRef.current;
+        // Use the full container dimensions, with minimum sizes to prevent issues
+        const newWidth = Math.max(clientWidth, 800);
+        const newHeight = Math.max(clientHeight - 40, 600); // Subtract some padding
+        setCanvasSize({ width: newWidth, height: newHeight });
+      }
+    };
+
+    // Initial size
+    updateCanvasSize();
+
+    // Set up ResizeObserver
+    if (canvasContainerRef.current) {
+      const resizeObserver = new ResizeObserver(updateCanvasSize);
+      resizeObserver.observe(canvasContainerRef.current);
+      
+      return () => {
+        resizeObserver.disconnect();
+      };
+    }
+  }, []);
+
+  // Handle escape key to cancel NPC direction mode
+  useEffect(() => {
+    const handleKeyPress = (event: KeyboardEvent) => {
+      if (event.key === 'Escape' && npcDirectionMode.active) {
+        setNpcDirectionMode({ active: false, npcId: '' });
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyPress);
+    return () => window.removeEventListener('keydown', handleKeyPress);
+  }, [npcDirectionMode.active]);
+
   const startSimulation = () => {
     agentSimulation.start();
     setIsSimulationRunning(true);
@@ -103,13 +146,23 @@ export default function SimpleAgentWorld() {
   };
 
   const handleMapClick = (event: React.MouseEvent<HTMLDivElement>) => {
-    if (!userCharacterId || isDragging) return;
+    if (isDragging) return;
 
     const rect = event.currentTarget.getBoundingClientRect();
     const x = event.clientX - rect.left + cameraX;
     const y = event.clientY - rect.top + cameraY;
 
-    agentSimulation.moveUserCharacter(userCharacterId, { x, y });
+    // Check if we're in NPC direction mode
+    if (npcDirectionMode.active && npcDirectionMode.npcId) {
+      agentSimulation.directNPCToLocation(npcDirectionMode.npcId, { x, y }, 'user-directed location');
+      setNpcDirectionMode({ active: false, npcId: '' });
+      return;
+    }
+
+    // Normal user character movement
+    if (userCharacterId) {
+      agentSimulation.moveUserCharacter(userCharacterId, { x, y });
+    }
   };
 
   const handleMouseDown = (event: React.MouseEvent<HTMLDivElement>) => {
@@ -180,7 +233,8 @@ export default function SimpleAgentWorld() {
       <div className="flex-1 grid grid-cols-1 xl:grid-cols-5 gap-4 p-4 min-h-0">
         {/* PIXI Agent World Map */}
         <div 
-          className="xl:col-span-4 rounded-lg relative overflow-hidden flex items-center justify-center cursor-grab active:cursor-grabbing bg-black" 
+          ref={canvasContainerRef}
+          className="xl:col-span-4 rounded-lg relative overflow-hidden cursor-grab active:cursor-grabbing bg-black" 
           style={{ minHeight: '600px' }}
           onClick={handleMapClick}
           onMouseDown={handleMouseDown}
@@ -188,14 +242,14 @@ export default function SimpleAgentWorld() {
           onMouseUp={handleMouseUp}
           onMouseLeave={handleMouseUp}
         >
-          <div className="w-full h-full max-w-full max-h-full">
+          <div className="w-full h-full">
             <Stage
-              width={1000}
-              height={700}
+              width={canvasSize.width}
+              height={canvasSize.height}
               options={{ 
-                backgroundColor: 0x000000, // Black background to eliminate grey areas
+                backgroundColor: 0x001a0d, // Dark forest green to match the world
                 antialias: false,
-                resolution: 1,
+                resolution: window.devicePixelRatio || 1,
               }}
             >
             {/* Camera container for world positioning */}
@@ -285,7 +339,15 @@ export default function SimpleAgentWorld() {
           
           {/* Camera controls hint */}
           <div className="absolute top-2 right-2 bg-black bg-opacity-75 text-white text-xs px-2 py-1 rounded pointer-events-none">
-            Click & drag to explore • {userCharacterId ? 'Click to move' : 'Join as character to move'}
+            {npcDirectionMode.active ? (
+              <div className="text-yellow-300">
+                🎯 Click on map to direct NPC • ESC to cancel
+              </div>
+            ) : (
+              <>
+                Click & drag to explore • {userCharacterId ? 'Click to move' : 'Join as character to move'}
+              </>
+            )}
           </div>
           
           {/* Loading/Error state overlay */}
@@ -315,6 +377,17 @@ export default function SimpleAgentWorld() {
 
           {/* Model Selector */}
           <ModelSelector />
+
+          {/* NPC Control Panel */}
+          <NPCControlPanel 
+            selectedAgent={selectedAgent}
+            agents={agents}
+            onMapClick={(position, npcId, action) => {
+              if (action === 'move') {
+                setNpcDirectionMode({ active: true, npcId });
+              }
+            }}
+          />
 
           {/* Agent Info Panel */}
           <div className="bg-brown-800 text-white rounded-lg p-4">
@@ -445,6 +518,9 @@ export default function SimpleAgentWorld() {
           Simulation: {isSimulationRunning ? '🟢 Running' : '🔴 Stopped'}
         </div>
       </div>
+
+      {/* Client LLM Processor for background processing - disabled for now */}
+      {/* <ClientLLMProcessor /> */}
     </div>
   );
 }

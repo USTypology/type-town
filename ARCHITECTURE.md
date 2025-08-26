@@ -1,39 +1,307 @@
 # Architecture
 
-This documents dives into the high-level architecture of AI Town and its different layers. We'll
-first start with a brief overview and then go in-depth on each component. The overview should
-be sufficient for forking AI Town and changing game or agent behavior. Read on to the deep dives
-if you're interested or running up against the engine's limitations.
+This document describes the enhanced architecture of AI Town, including the new client-side AI processing, intelligent NPC behavior system, and comprehensive control interface.
 
-This doc assumes the reader has a working knowledge of Convex. If you're new to Convex, check out
-the [Convex tutorial](https://docs.convex.dev/get-started) to get started.
+## 🏗️ Enhanced Architecture Overview
 
-## Overview
+AI Town now operates with a multi-layered architecture that combines client-side AI processing with intelligent NPC behavior:
 
-AI Town is split into a few layers:
+- **Client-Side AI Layer** (`src/lib/`, `src/workers/`): Browser-based Llama model inference with WebGPU/SIMD optimization
+- **Intelligent NPC System** (`src/lib/staticAgentSimulation.ts`): Context-aware decision making with personality-driven behavior
+- **Interactive Control Layer** (`src/components/NPCControlPanel.tsx`): Real-time monitoring and NPC orchestration
+- **Responsive Layout System** (`src/components/SimpleAgentWorld.tsx`): Dynamic canvas sizing with ResizeObserver
+- **Static World Engine** (`src/lib/staticDb.ts`): Local world persistence and state management
 
-- The server-side game logic in `convex/aiTown`: This layer defines what state AI Town maintains,
-  how it evolves over time, and how it reacts to user input. Both humans and agents submit inputs
-  that the game engine processes.
-- The client-side game UI in `src/`: AI Town uses `pixi-react` to render the game state to the
-  browser for human consumption.
-- The game engine in `convex/engine`: To make it easy to hack on the game rules, we've separated
-  out the game engine from the AI Town-specific game rules. The game engine is responsible for
-  saving and loading game state from the database, coordinating feeding inputs into the engine,
-  and actually running the game engine in Convex functions.
-- The agent in `convex/agent`: Agents run as part of the game loop, and can kick off asynchronous
-  Convex functions to do longer processing, such as talking to LLMs. Those functions can save state
-  in separate tables, or submit inputs to the game engine to modify game state. Internally, our
-  agents use a combination of simple rule-based systems and talking to an LLM.
+The architecture is designed for:
+- **Privacy**: All AI processing happens locally in the browser
+- **Performance**: WebGPU acceleration and Web Worker processing prevent UI blocking
+- **Intelligence**: NPCs make contextual decisions based on personality, location, and social dynamics
+- **Interactivity**: Comprehensive controls for monitoring and directing AI characters
 
-So, if you'd like to tweak agent behavior but keep the same game mechanics, check out `convex/agent`
-for the async work, and `convex/aiTown/agent.ts` for the game loop logic.
-If you would like to add new gameplay elements (that both humans and agents can interact with), add
-the feature to `convex/aiTown`, render it in the UI in `src/`, and respond to it in `convex/aiTown/agent.ts`.
+## 📊 System Components Deep Dive
 
-If you have parts of your game that are more latency sensitive, you can move them out of engine
-into regular Convex tables, queries, and mutations, only logging key bits into game state. See
-"Message data model" below for an example.
+### Client-Side AI Processing Layer
+
+#### Web Worker Architecture (`src/workers/clientLLMWorker.ts`)
+```
+Main Thread UI ←→ Worker Message Queue ←→ Transformers.js ←→ Hardware Backend
+     ↓                    ↓                      ↓                ↓
+  Game Logic        Request/Response         Model Inference   WebGPU/SIMD
+```
+
+**Key Features:**
+- **Non-blocking inference**: Web Workers prevent main thread blocking during model processing
+- **Hardware detection**: Automatic WebGPU/SIMD capability detection and optimization
+- **Model management**: Dynamic model switching with memory management
+- **Fallback systems**: Graceful degradation when hardware requirements aren't met
+
+#### Model Selection System (`src/lib/clientLLM.ts`)
+- **Automatic recommendations** based on device capabilities
+- **Hardware validation** before model loading
+- **Performance monitoring** with FLOPS benchmarking
+- **Memory management** for large models
+
+### Intelligent NPC Behavior System
+
+#### Context-Aware Decision Engine (`src/lib/staticAgentSimulation.ts`)
+```
+NPC State → Personality Analysis → Context Evaluation → Priority Calculation → Action Selection
+     ↓              ↓                     ↓                    ↓                ↓
+   Stats       Trait-based           Location +          Weighted goals     Behavior execution
+ & Memory      preferences          Social context       & priorities        & responses
+```
+
+**Decision Factors:**
+- **Personality traits**: Curiosity, sociability, energy levels
+- **Contextual awareness**: Recent activities, location, nearby NPCs
+- **Memory system**: Past interactions and conversation history
+- **Goal hierarchies**: Prioritized objectives with weighted selection
+
+#### Enhanced Conversation System
+- **Model-aware prompting**: Different prompt formats for Llama vs. conversational models
+- **Context injection**: Character personality and recent memory in prompts
+- **Response cleaning**: Model-specific post-processing for quality
+- **Conversation orchestration**: Directed interactions between specific NPCs
+
+### Interactive Control Interface
+
+#### Real-Time NPC Monitoring (`src/components/NPCControlPanel.tsx`)
+```
+Live Data Stream → State Processing → UI Components → User Actions → NPC Commands
+       ↓               ↓                   ↓             ↓             ↓
+   NPC Status      Status filtering    Real-time UI   Control input  Behavior changes
+   & Activities    & aggregation       updates        validation     & execution
+```
+
+**Control Features:**
+- **Status monitoring**: Live display of NPC activities, goals, and state
+- **Goal assignment**: Natural language commands for directing behavior
+- **Movement control**: Click-to-move with pathfinding visualization
+- **Conversation orchestration**: Make specific NPCs interact
+- **Quick actions**: One-click commands for common behaviors
+
+### Responsive Layout System
+
+#### Dynamic Canvas Management (`src/components/SimpleAgentWorld.tsx`)
+- **ResizeObserver integration**: Automatic canvas resizing based on container
+- **Minimum thresholds**: Ensures usable canvas size across devices
+- **Aspect ratio preservation**: Maintains world proportions during resize
+- **Performance optimization**: Efficient rendering pipeline with PIXI.js
+
+## 🔧 Technical Implementation Details
+
+### Web Worker Communication Protocol
+
+#### Message Types
+```typescript
+interface WorkerRequest {
+  id: string;
+  type: 'initialize' | 'generate' | 'switchModel' | 'getCapabilities';
+  data: {
+    modelName?: string;
+    prompt?: string;
+    maxTokens?: number;
+  };
+}
+
+interface WorkerResponse {
+  id: string;
+  success: boolean;
+  data?: {
+    text?: string;
+    status?: string;
+    capabilities?: HardwareCapabilities;
+  };
+  error?: string;
+}
+```
+
+#### Request/Response Flow
+1. **Main thread** creates request with unique ID
+2. **Worker** receives request and processes asynchronously
+3. **Transformers.js** performs model inference with hardware optimization
+4. **Worker** returns response with generated text or status
+5. **Main thread** resolves promise and updates UI
+
+### Hardware Optimization Pipeline
+
+#### Capability Detection (`src/lib/backendDetection.ts`)
+```typescript
+interface BackendCapabilities {
+  webnn: boolean;      // Neural Network API
+  webgpu: boolean;     // GPU acceleration  
+  wasm: boolean;       // WebAssembly support
+  webgl: boolean;      // Fallback GPU
+  simd: boolean;       // SIMD vectorization
+  threads: boolean;    // Multi-threading
+}
+```
+
+#### Performance Benchmarking
+- **WebGPU compute shaders**: GPU FLOPS measurement
+- **WASM math operations**: CPU performance testing
+- **JavaScript baseline**: Fallback performance measurement
+- **Memory estimation**: Available heap size detection
+
+### NPC Intelligence Architecture
+
+#### Decision Making Pipeline
+```typescript
+class NPCAgent {
+  async makeDecision(): Promise<NPCAction> {
+    const context = this.analyzeContext();           // Location, nearby NPCs
+    const personality = this.getPersonalityWeights(); // Trait-based preferences
+    const priorities = this.calculatePriorities();   // Goal importance
+    
+    return this.selectOptimalAction(context, personality, priorities);
+  }
+}
+```
+
+#### Context Analysis
+- **Spatial awareness**: Position relative to locations and other NPCs
+- **Social context**: Recent interactions and conversation history
+- **Temporal factors**: Time since last activity, energy levels
+- **Goal tracking**: Current objectives and progress toward completion
+
+### Model-Specific Optimizations
+
+#### Llama Instruct Models
+```typescript
+// Structured prompt format for instruction following
+const formatLlamaPrompt = (character: string, context: string, task: string) => `
+<|start_header_id|>user<|end_header_id|>
+
+You are ${character}. ${context}
+
+Task: ${task}
+
+<|eot_id|><|start_header_id|>assistant<|end_header_id|>
+
+`;
+
+// Optimized generation parameters
+const llamaConfig = {
+  temperature: 0.6,
+  top_p: 0.9, 
+  repetition_penalty: 1.05,
+  pad_token_id: 128001  // Llama-specific
+};
+```
+
+#### Conversational Models
+```typescript
+// Dialogue format for conversational models
+const formatConversationalPrompt = (character: string, dialogue: string[]) => `
+${character} is a character in a virtual town.
+
+${dialogue.slice(-3).join('\n')}
+${character}: "`;
+
+// Balanced generation parameters  
+const conversationalConfig = {
+  temperature: 0.7,
+  top_p: 0.9,
+  repetition_penalty: 1.1,
+  pad_token_id: 50256  // GPT-2 standard
+};
+```
+
+## 🎯 Performance Characteristics
+
+### Client-Side Processing Benefits
+- **Zero latency** for model loading after initial download
+- **Parallel processing** through Web Workers
+- **Hardware acceleration** via WebGPU when available
+- **Memory efficiency** through model caching and optimization
+
+### Scalability Considerations
+- **Client compute distribution**: Each user provides their own AI processing power
+- **Bandwidth efficiency**: Models downloaded once and cached indefinitely
+- **Server load reduction**: No server-side LLM API calls required
+- **Privacy preservation**: All user data stays on device
+
+### Memory Management
+- **Automatic model selection** based on available system memory
+- **Garbage collection optimization** for large model cleanup
+- **Memory monitoring** with automatic fallback to smaller models
+- **Browser cache utilization** for model persistence
+
+## 🔄 System Integration Flow
+
+### NPC Lifecycle with AI Processing
+```
+1. NPC Decision Trigger
+   ↓
+2. Context Analysis (personality, location, recent activity)
+   ↓ 
+3. Priority Calculation (weighted goals and preferences)
+   ↓
+4. Action Selection (move, socialize, explore, rest)
+   ↓
+5. AI Generation Request (if conversation needed)
+   ↓
+6. Web Worker Processing (model inference)
+   ↓
+7. Response Integration (clean and validate output)
+   ↓
+8. Behavior Execution (update NPC state and display)
+   ↓
+9. Memory Update (store interaction history)
+```
+
+### User Control Integration
+```
+1. User Input (goal assignment, movement command, etc.)
+   ↓
+2. Input Validation (check feasibility and safety)
+   ↓
+3. NPC State Update (modify goals or position)
+   ↓
+4. Behavior Trigger (immediate or queued action)
+   ↓
+5. AI Processing (if text generation needed)
+   ↓
+6. Visual Feedback (update UI and world display)
+   ↓
+7. Status Update (refresh control panel information)
+```
+
+## 🚀 Future Architecture Evolution
+
+### Planned Enhancements
+- **Multi-modal models**: Integration of vision and audio capabilities
+- **Distributed processing**: P2P model sharing and collaborative inference
+- **Dynamic model composition**: Multiple specialized models per NPC
+- **Advanced memory systems**: Long-term episodic memory with vector search
+
+### Experimental Features
+- **WebNN integration**: Native neural network API support
+- **Streaming inference**: Real-time token generation for longer responses
+- **Model fine-tuning**: User-specific model adaptation
+- **Cross-device synchronization**: Shared NPC states across devices
+
+## 🔧 Development Guidelines
+
+### Adding New Models
+1. **Update model configuration** in `src/lib/llmConfig.ts`
+2. **Add hardware requirements** to validation system
+3. **Test compatibility** across different devices and browsers
+4. **Document performance characteristics** and usage recommendations
+
+### Extending NPC Behavior  
+1. **Add new personality traits** to the trait system
+2. **Implement context analyzers** for new environmental factors
+3. **Create specialized conversation prompts** for different scenarios
+4. **Test behavior emergence** and inter-NPC interactions
+
+### Performance Optimization
+1. **Profile memory usage** during model operations
+2. **Benchmark inference speed** across hardware configurations
+3. **Optimize prompt engineering** for faster generation
+4. **Implement progressive loading** for large models
+
+This enhanced architecture provides a robust foundation for intelligent, interactive AI characters while maintaining privacy and performance through client-side processing.
 
 ## AI Town game logic (`convex/aiTown`)
 
