@@ -18,15 +18,10 @@ export async function initializeStaticDb() {
     const JSDELIVR_BUNDLES = duckdb.getJsDelivrBundles();
     const bundle = await duckdb.selectBundle(JSDELIVR_BUNDLES);
 
-    // Guard against cross-origin worker on static hosts (e.g., GitHub Pages)
-    const workerUrl = bundle.mainWorker!;
-    const resolved = new URL(workerUrl, typeof window !== 'undefined' ? window.location.href : '');
-    if (typeof window !== 'undefined' && resolved.origin !== window.location.origin) {
-      console.warn('DuckDB-WASM worker is cross-origin; skipping DuckDB init and using in-memory persistence.');
-      throw new Error('DuckDB worker must be served from the same origin');
-    }
-
-    const worker = new Worker(workerUrl);
+    // Create a same-origin blob worker that imports the CDN worker script to avoid cross-origin construction errors
+    const workerScript = `self.window = self; importScripts("${bundle.mainWorker}");`;
+    const blob = new Blob([workerScript], { type: 'application/javascript' });
+    const worker = new Worker(URL.createObjectURL(blob));
     const logger = new duckdb.ConsoleLogger();
     db = new duckdb.AsyncDuckDB(logger, worker);
     await db.instantiate(bundle.mainModule);
