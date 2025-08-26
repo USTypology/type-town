@@ -8,18 +8,20 @@ import * as gentlesplash from '../../data/animations/gentlesplash.json';
 import * as windmill from '../../data/animations/windmill.json';
 
 const animations = {
-  'campfire.json': { spritesheet: campfire, url: '/ai-town/assets/spritesheets/campfire.png' },
+  'campfire.json': { spritesheet: campfire, url: '/assets/spritesheets/campfire.png' },
   'gentlesparkle.json': {
     spritesheet: gentlesparkle,
-    url: '/ai-town/assets/spritesheets/gentlesparkle32.png',
+    url: '/assets/spritesheets/gentlesparkle32.png',
   },
   'gentlewaterfall.json': {
     spritesheet: gentlewaterfall,
-    url: '/ai-town/assets/spritesheets/gentlewaterfall32.png',
+    url: '/assets/spritesheets/gentlewaterfall32.png',
   },
-  'windmill.json': { spritesheet: windmill, url: '/ai-town/assets/spritesheets/windmill.png' },
-  'gentlesplash.json': { spritesheet: gentlesplash,
-    url: '/ai-town/assets/spritesheets/gentlewaterfall32.png',},
+  'windmill.json': { spritesheet: windmill, url: '/assets/spritesheets/windmill.png' },
+  'gentlesplash.json': {
+    spritesheet: gentlesplash,
+    url: '/assets/spritesheets/gentlewaterfall32.png',
+  },
 };
 
 export const PixiStaticMap = PixiComponent('StaticMap', {
@@ -84,7 +86,11 @@ export const PixiStaticMap = PixiComponent('StaticMap', {
       const texture = PIXI.BaseTexture.from(url, {
         scaleMode: PIXI.SCALE_MODES.NEAREST,
       });
-      const spriteSheet = new PIXI.Spritesheet(texture, spritesheet);
+      // Clone and prefix frame names to avoid global cache collisions across sheets
+      const data = JSON.parse(JSON.stringify(spritesheet));
+      data.meta = data.meta || {};
+      data.meta.prefix = `${sheet.replace('.json', '')}/`;
+      const spriteSheet = new PIXI.Spritesheet(texture, data);
       spriteSheet.parse().then(() => {
         for (const sprite of sprites) {
           const pixiAnimation = spriteSheet.animations[sprite.animation];
@@ -109,7 +115,7 @@ export const PixiStaticMap = PixiComponent('StaticMap', {
     container.y = 0;
 
     // Set the hit area manually to ensure `pointerdown` events are delivered to this container.
-    container.interactive = true;
+    container.eventMode = 'static';
     container.hitArea = new PIXI.Rectangle(
       0,
       0,
