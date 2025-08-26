@@ -5,6 +5,19 @@
 
 import '@testing-library/jest-dom';
 
+// Mock import.meta.env for Vite
+Object.defineProperty(globalThis, 'import', {
+  value: {
+    meta: {
+      env: {
+        VITE_LLM_INFERENCE_MODE: 'client',
+        VITE_CLIENT_LLM_MODEL: 'Xenova/distilgpt2',
+        VITE_SERVER_URL: 'http://localhost:3000'
+      }
+    }
+  }
+});
+
 // Mock browser APIs that aren't available in Node.js
 Object.defineProperty(window, 'performance', {
   writable: true,
@@ -68,3 +81,10 @@ Object.defineProperty(window, 'sessionStorage', {
   RuntimeError: Error,
   LinkError: Error
 };
+
+// Dummy test to satisfy Jest requirements
+describe('Setup', () => {
+  it('should setup test environment', () => {
+    expect(true).toBe(true);
+  });
+});

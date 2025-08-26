@@ -93,9 +93,16 @@ export class BackendDetector {
 
   private detectSIMD(): boolean {
     try {
-      // WebAssembly SIMD is often available as a feature flag in newer browsers
+      // Test for WebAssembly SIMD support by attempting to validate SIMD bytecode
+      const simdTestCode = new Uint8Array([
+        0x00, 0x61, 0x73, 0x6d, // magic
+        0x01, 0x00, 0x00, 0x00, // version
+        0x01, 0x05, 0x01, 0x60, // type section
+        0x00, 0x01, 0x7b,       // v128 result type
+      ]);
+      
       return typeof WebAssembly !== 'undefined' && 
-             typeof (WebAssembly as any).SIMD !== 'undefined';
+             WebAssembly.validate(simdTestCode);
     } catch {
       return false;
     }
@@ -103,7 +110,20 @@ export class BackendDetector {
 
   private detectThreads(): boolean {
     try {
-      return typeof SharedArrayBuffer !== 'undefined' && typeof Worker !== 'undefined';
+      // Check for SharedArrayBuffer and Worker support, and that they're not disabled
+      const hasSharedArrayBuffer = typeof SharedArrayBuffer !== 'undefined';
+      const hasWorker = typeof Worker !== 'undefined';
+      
+      // Additional check: SharedArrayBuffer might be disabled due to security headers
+      if (hasSharedArrayBuffer) {
+        try {
+          new SharedArrayBuffer(1);
+        } catch {
+          return false;
+        }
+      }
+      
+      return hasSharedArrayBuffer && hasWorker;
     } catch {
       return false;
     }
@@ -251,13 +271,15 @@ export class BackendDetector {
     try {
       const start = performance.now();
       
-      // Create a simple WASM module for floating point operations
+      // Create a valid WASM module for floating point operations
+      // This creates a simple multiply function: (f32, f32) -> f32
       const wasmCode = new Uint8Array([
-        0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00,
-        0x01, 0x07, 0x01, 0x60, 0x02, 0x7d, 0x7d, 0x01, 0x7d,
-        0x03, 0x02, 0x01, 0x00,
-        0x07, 0x0b, 0x01, 0x07, 0x6d, 0x75, 0x6c, 0x74, 0x69, 0x70, 0x6c, 0x79, 0x00, 0x00,
-        0x0a, 0x09, 0x01, 0x07, 0x00, 0x20, 0x00, 0x20, 0x01, 0x92, 0x0b
+        0x00, 0x61, 0x73, 0x6d, // magic
+        0x01, 0x00, 0x00, 0x00, // version
+        0x01, 0x07, 0x01, 0x60, 0x02, 0x7d, 0x7d, 0x01, 0x7d, // type section: (f32, f32) -> f32
+        0x03, 0x02, 0x01, 0x00, // function section: function 0 has type 0
+        0x07, 0x0c, 0x01, 0x08, 0x6d, 0x75, 0x6c, 0x74, 0x69, 0x70, 0x6c, 0x79, 0x00, 0x00, // export section: export function 0 as "multiply"
+        0x0a, 0x09, 0x01, 0x07, 0x00, 0x20, 0x00, 0x20, 0x01, 0x92, 0x0b // code section: multiply two f32 values
       ]);
       
       const wasmModule = await WebAssembly.instantiate(wasmCode);
@@ -271,11 +293,11 @@ export class BackendDetector {
       
       const duration = performance.now() - start;
       const operations = 1000000;
-      const flopsPerSecond = (operations / duration) * 1000;
+      const flopsPerSecond = duration > 0 ? (operations / duration) * 1000 : 0;
 
       return {
         backend: 'WASM',
-        flopsPerSecond,
+        flopsPerSecond: isFinite(flopsPerSecond) ? flopsPerSecond : 0,
         duration,
       };
     } catch (error) {
@@ -295,26 +317,33 @@ export class BackendDetector {
     let result = 1.0;
     for (let i = 0; i < 1000000; i++) {
       result = result * 1.0001 + Math.sin(i * 0.001);
+      // Prevent result from growing too large
+      if (!isFinite(result) || Math.abs(result) > 1e10) {
+        result = 1.0;
+      }
     }
     
     const duration = performance.now() - start;
     const operations = 1000000 * 2; // multiplication + addition per iteration
-    const flopsPerSecond = (operations / duration) * 1000;
+    const flopsPerSecond = duration > 0 ? (operations / duration) * 1000 : 0;
 
     return {
       backend: 'JavaScript',
-      flopsPerSecond,
+      flopsPerSecond: isFinite(flopsPerSecond) ? flopsPerSecond : 0,
       duration,
     };
   }
 
   private determineRecommendedBackend(results: FlopsResult[]): string {
-    const validResults = results.filter(r => r.flopsPerSecond > 0);
+    const validResults = results.filter(r => r.flopsPerSecond > 0 && isFinite(r.flopsPerSecond));
     if (validResults.length === 0) return 'JavaScript';
     
-    return validResults.reduce((best, current) => 
-      current.flopsPerSecond > best.flopsPerSecond ? current : best
-    ).backend;
+    return validResults.reduce((best, current) => {
+      // Prefer higher FLOPS, but also consider error-free results
+      if (current.error && !best.error) return best;
+      if (best.error && !current.error) return current;
+      return current.flopsPerSecond > best.flopsPerSecond ? current : best;
+    }).backend;
   }
 
   getBenchmarkResults(): BenchmarkResults | null {
