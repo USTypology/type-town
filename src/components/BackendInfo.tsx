@@ -5,14 +5,25 @@ interface BackendInfoProps {
   className?: string;
 }
 
+interface WebGPUDiagnostics {
+  available: boolean;
+  adapter?: any;
+  device?: any;
+  features?: string[];
+  limits?: any;
+  error?: string;
+}
+
 export default function BackendInfo({ className = '' }: BackendInfoProps) {
   const [benchmarkResults, setBenchmarkResults] = useState<BenchmarkResults | null>(null);
+  const [webgpuDiagnostics, setWebgpuDiagnostics] = useState<WebGPUDiagnostics | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [showDetails, setShowDetails] = useState(false);
 
   useEffect(() => {
     // Auto-run benchmarks on component mount
     runBenchmarks();
+    runWebGPUDiagnostics();
   }, []);
 
   const runBenchmarks = async () => {
@@ -24,6 +35,27 @@ export default function BackendInfo({ className = '' }: BackendInfoProps) {
       console.error('Backend benchmarking failed:', error);
     } finally {
       setIsLoading(false);
+    }
+  };
+
+  const runWebGPUDiagnostics = async () => {
+    try {
+      const diagnostics = await backendDetector.getWebGPUDiagnostics();
+      setWebgpuDiagnostics(diagnostics);
+    } catch (error) {
+      console.error('WebGPU diagnostics failed:', error);
+    }
+  };
+
+  const initializeWebGPU = async () => {
+    try {
+      const result = await backendDetector.initializeWebGPUForTransformers();
+      alert(`WebGPU Initialization: ${result.message}`);
+      if (result.success) {
+        runBenchmarks(); // Re-run benchmarks after successful initialization
+      }
+    } catch (error) {
+      alert(`WebGPU initialization failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
     }
   };
 
@@ -115,6 +147,51 @@ export default function BackendInfo({ className = '' }: BackendInfoProps) {
                 </div>
               </div>
 
+              {/* WebGPU Diagnostics */}
+              {webgpuDiagnostics && (
+                <div>
+                  <h4 className="font-semibold mb-2 flex items-center gap-2">
+                    WebGPU Diagnostics
+                    {webgpuDiagnostics.available && (
+                      <button
+                        onClick={initializeWebGPU}
+                        className="px-2 py-1 bg-blue-600 hover:bg-blue-700 text-xs rounded"
+                      >
+                        Initialize for LLM
+                      </button>
+                    )}
+                  </h4>
+                  {webgpuDiagnostics.available ? (
+                    <div className="space-y-2 text-sm">
+                      {webgpuDiagnostics.adapter && (
+                        <div className="bg-slate-700 p-2 rounded">
+                          <div className="font-medium text-green-400">Adapter Available</div>
+                          <div className="text-xs text-gray-400">
+                            <div>Vendor: {webgpuDiagnostics.adapter.vendor}</div>
+                            <div>Device: {webgpuDiagnostics.adapter.device}</div>
+                            <div>Architecture: {webgpuDiagnostics.adapter.architecture}</div>
+                          </div>
+                        </div>
+                      )}
+                      {webgpuDiagnostics.features && webgpuDiagnostics.features.length > 0 && (
+                        <div className="bg-slate-700 p-2 rounded">
+                          <div className="font-medium">Features:</div>
+                          <div className="text-xs text-gray-400">
+                            {webgpuDiagnostics.features.join(', ')}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  ) : (
+                    <div className="bg-red-800 bg-opacity-30 border border-red-600 p-2 rounded">
+                      <div className="text-red-400 text-sm">
+                        {webgpuDiagnostics.error || 'WebGPU not available'}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+
               {/* Device Info */}
               <div>
                 <h4 className="font-semibold mb-2">Device Information</h4>
@@ -130,7 +207,10 @@ export default function BackendInfo({ className = '' }: BackendInfoProps) {
               </div>
 
               <button
-                onClick={runBenchmarks}
+                onClick={() => {
+                  runBenchmarks();
+                  runWebGPUDiagnostics();
+                }}
                 disabled={isLoading}
                 className="w-full px-3 py-2 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-600 text-white text-sm rounded transition-colors"
               >
@@ -143,7 +223,10 @@ export default function BackendInfo({ className = '' }: BackendInfoProps) {
 
       {!benchmarkResults && !isLoading && (
         <button
-          onClick={runBenchmarks}
+          onClick={() => {
+            runBenchmarks();
+            runWebGPUDiagnostics();
+          }}
           className="w-full px-3 py-2 bg-blue-600 hover:bg-blue-700 text-white text-sm rounded transition-colors"
         >
           Run Performance Tests

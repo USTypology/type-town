@@ -81,12 +81,13 @@ class ClientLLMService {
 
       // Configure transformers.js for optimal performance
       if (capabilities.webgpu && modelConfig?.requiresWebGPU) {
-        // Enable WebGPU for supported models (if available in the API)
-        try {
-          (env.backends.onnx.wasm as any).useGpu = true;
-          console.log('WebGPU enabled for model inference');
-        } catch {
-          console.log('WebGPU configuration not available in this version');
+        // Try to initialize WebGPU properly for transformers.js
+        const webgpuInit = await backendDetector.initializeWebGPUForTransformers();
+        console.log('WebGPU initialization:', webgpuInit.message);
+        
+        if (!webgpuInit.success) {
+          console.warn(`WebGPU initialization failed: ${webgpuInit.message}. Falling back to DistilGPT-2.`);
+          return this.initialize('Xenova/distilgpt2');
         }
       } else {
         // Use WASM/CPU fallback

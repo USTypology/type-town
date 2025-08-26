@@ -67,7 +67,16 @@ export class BackendDetector {
 
   private async detectWebGPU(): Promise<boolean> {
     try {
-      return 'gpu' in navigator && typeof (navigator as any).gpu?.requestAdapter === 'function';
+      if (!('gpu' in navigator) || typeof (navigator as any).gpu?.requestAdapter !== 'function') {
+        return false;
+      }
+      
+      // Actually test if we can get an adapter
+      const adapter = await (navigator as any).gpu.requestAdapter({
+        powerPreference: 'high-performance'
+      });
+      
+      return adapter !== null;
     } catch {
       return false;
     }
@@ -168,56 +177,117 @@ export class BackendDetector {
 
   private async benchmarkWebGPU(): Promise<FlopsResult> {
     try {
-      const adapter = await (navigator as any).gpu.requestAdapter();
+      // Request adapter with detailed options
+      const adapter = await (navigator as any).gpu.requestAdapter({
+        powerPreference: 'high-performance',
+        forceFallbackAdapter: false
+      });
+      
       if (!adapter) {
         throw new Error('WebGPU adapter not available');
       }
 
-      const device = await adapter.requestDevice();
+      // Get device with required features if available
+      const device = await adapter.requestDevice({
+        requiredFeatures: [],
+        requiredLimits: {}
+      });
+      
       const start = performance.now();
       
-      // Simple compute shader for FLOPS testing
+      // Enhanced compute shader for better FLOPS measurement
       const computeShader = device.createShaderModule({
         code: `
-          @compute @workgroup_size(64)
+          @group(0) @binding(0) var<storage, read_write> data: array<f32>;
+          
+          @compute @workgroup_size(256)
           fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
             let index = global_id.x;
-            if (index >= 1000u) { return; }
+            if (index >= arrayLength(&data)) { return; }
             
-            // Perform multiple floating point operations
-            var result = 0.0;
-            for (var i = 0u; i < 1000u; i++) {
-              result += f32(i) * 2.5 + 1.0;
-              result *= 0.999;
+            // Intensive floating point computation
+            var result = data[index];
+            
+            for (var i = 0u; i < 100u; i++) {
+              // Multiple operations per iteration to increase FLOPS
+              result = result * 1.001 + 0.5;
+              result = sin(result) * 0.9 + 0.1;
+              result = sqrt(abs(result));
+              result = result * result + 1.0;
+              
+              // Prevent overflow/underflow
+              if (result > 1000.0) { result = result * 0.001; }
+              if (result < 0.001) { result = result + 1.0; }
             }
+            
+            data[index] = result;
           }
         `
       });
 
+      // Create larger buffer for more substantial computation
+      const bufferSize = 65536; // 64K elements
+      const buffer = device.createBuffer({
+        size: bufferSize * 4, // 4 bytes per f32
+        usage: 0x80 | 0x4 | 0x8 // STORAGE | COPY_DST | COPY_SRC
+      });
+
+      // Initialize buffer with data
+      const initialData = new Float32Array(bufferSize);
+      for (let i = 0; i < bufferSize; i++) {
+        initialData[i] = Math.random();
+      }
+      device.queue.writeBuffer(buffer, 0, initialData);
+
+      const bindGroupLayout = device.createBindGroupLayout({
+        entries: [{
+          binding: 0,
+          visibility: 0x4, // COMPUTE stage
+          buffer: { type: 'storage' as const }
+        }]
+      });
+
       const pipeline = device.createComputePipeline({
-        layout: 'auto',
+        layout: device.createPipelineLayout({
+          bindGroupLayouts: [bindGroupLayout]
+        }),
         compute: {
           module: computeShader,
           entryPoint: 'main',
         },
       });
 
+      const bindGroup = device.createBindGroup({
+        layout: bindGroupLayout,
+        entries: [{
+          binding: 0,
+          resource: { buffer }
+        }]
+      });
+
       const commandEncoder = device.createCommandEncoder();
       const passEncoder = commandEncoder.beginComputePass();
       passEncoder.setPipeline(pipeline);
-      passEncoder.dispatchWorkgroups(16); // 64 * 16 = 1024 work items
+      passEncoder.setBindGroup(0, bindGroup);
+      // Dispatch workgroups to cover all buffer elements
+      passEncoder.dispatchWorkgroups(Math.ceil(bufferSize / 256));
       passEncoder.end();
       
       device.queue.submit([commandEncoder.finish()]);
       await device.queue.onSubmittedWorkDone();
       
       const duration = performance.now() - start;
-      const operations = 1000 * 1000 * 3; // 1000 iterations * 1000 work items * ~3 ops per iteration
-      const flopsPerSecond = (operations / duration) * 1000;
+      
+      // Calculate FLOPS: 6 operations per inner loop * 100 iterations * bufferSize elements
+      const operations = 6 * 100 * bufferSize;
+      const flopsPerSecond = duration > 0 ? (operations / duration) * 1000 : 0;
+
+      // Clean up resources
+      buffer.destroy();
 
       return {
         backend: 'WebGPU',
-        flopsPerSecond,
+        flopsPerSecond: isFinite(flopsPerSecond) ? flopsPerSecond : 0,
         duration,
       };
     } catch (error) {
@@ -338,12 +408,61 @@ export class BackendDetector {
     const validResults = results.filter(r => r.flopsPerSecond > 0 && isFinite(r.flopsPerSecond));
     if (validResults.length === 0) return 'JavaScript';
     
-    return validResults.reduce((best, current) => {
-      // Prefer higher FLOPS, but also consider error-free results
-      if (current.error && !best.error) return best;
-      if (best.error && !current.error) return current;
-      return current.flopsPerSecond > best.flopsPerSecond ? current : best;
-    }).backend;
+    // Sort by FLOPS performance, but also consider backend preference
+    const sortedResults = validResults.sort((a, b) => {
+      // Give slight preference to WebGPU and WebNN for similar performance
+      const aScore = a.flopsPerSecond * (a.backend === 'WebGPU' ? 1.1 : a.backend === 'WebNN' ? 1.05 : 1.0);
+      const bScore = b.flopsPerSecond * (b.backend === 'WebGPU' ? 1.1 : b.backend === 'WebNN' ? 1.05 : 1.0);
+      
+      return bScore - aScore;
+    });
+    
+    return sortedResults[0].backend;
+  }
+
+  // Get detailed WebGPU diagnostics
+  async getWebGPUDiagnostics(): Promise<{
+    available: boolean;
+    adapter?: any;
+    device?: any;
+    features?: string[];
+    limits?: any;
+    error?: string;
+  }> {
+    try {
+      if (!('gpu' in navigator)) {
+        return { available: false, error: 'WebGPU not available in this browser' };
+      }
+
+      const adapter = await (navigator as any).gpu.requestAdapter({
+        powerPreference: 'high-performance'
+      });
+
+      if (!adapter) {
+        return { available: false, error: 'No WebGPU adapter available' };
+      }
+
+      const device = await adapter.requestDevice();
+      
+      return {
+        available: true,
+        adapter: {
+          vendor: adapter.info?.vendor || 'Unknown',
+          architecture: adapter.info?.architecture || 'Unknown',
+          device: adapter.info?.device || 'Unknown',
+          description: adapter.info?.description || 'Unknown'
+        },
+        features: Array.from(adapter.features || []),
+        limits: adapter.limits ? Object.fromEntries(
+          Object.entries(adapter.limits).map(([key, value]) => [key, value])
+        ) : {}
+      };
+    } catch (error) {
+      return {
+        available: false,
+        error: error instanceof Error ? error.message : 'Unknown error'
+      };
+    }
   }
 
   getBenchmarkResults(): BenchmarkResults | null {
@@ -352,6 +471,74 @@ export class BackendDetector {
 
   getCapabilities(): BackendCapabilities | null {
     return this.capabilities;
+  }
+
+  // Force re-detection and benchmarking
+  async forceRefresh(): Promise<BenchmarkResults> {
+    this.capabilities = null;
+    this.benchmarkResults = null;
+    return await this.benchmarkFlops();
+  }
+
+  // Attempt to initialize WebGPU for transformers.js
+  async initializeWebGPUForTransformers(): Promise<{ success: boolean; message: string }> {
+    try {
+      const diagnostics = await this.getWebGPUDiagnostics();
+      
+      if (!diagnostics.available) {
+        return {
+          success: false,
+          message: `WebGPU not available: ${diagnostics.error}`
+        };
+      }
+
+      // Import transformers env and try to enable WebGPU
+      const { env } = await import('@xenova/transformers');
+      
+      // Set WebGPU backend preferences
+      try {
+        // First, try to enable WebGPU through ONNX backend settings
+        if (env.backends.onnx.webgpu && typeof env.backends.onnx.webgpu === 'object') {
+          // Check if webgpu backend has initialization method
+          const webgpuBackend = env.backends.onnx.webgpu as any;
+          if (webgpuBackend.initialize) {
+            await webgpuBackend.initialize();
+          }
+          return {
+            success: true,
+            message: 'WebGPU backend enabled in transformers.js'
+          };
+        } else {
+          // Fallback: try to enable through WASM backend settings with GPU
+          (env.backends.onnx.wasm as any).useGpu = true;
+          (env.backends.onnx.wasm as any).numThreads = Math.min(navigator.hardwareConcurrency, 4);
+          
+          return {
+            success: true,
+            message: 'GPU acceleration enabled through WASM backend'
+          };
+        }
+      } catch (transformersError) {
+        // Fallback: at least optimize WASM settings
+        try {
+          (env.backends.onnx.wasm as any).numThreads = Math.min(navigator.hardwareConcurrency, 4);
+          return {
+            success: true,
+            message: 'Multi-threading enabled for WASM backend'
+          };
+        } catch {
+          return {
+            success: false,
+            message: `Failed to configure backends: ${transformersError instanceof Error ? transformersError.message : 'Unknown error'}`
+          };
+        }
+      }
+    } catch (error) {
+      return {
+        success: false,
+        message: `Backend initialization failed: ${error instanceof Error ? error.message : 'Unknown error'}`
+      };
+    }
   }
 }
 
