@@ -25,6 +25,8 @@ class BackendDetectionWorkerService {
   }>();
   private isInitialized = false;
   private cachedResults: BenchmarkResults | null = null;
+  private cachedCapabilities: { capabilities: BackendCapabilities; timestamp: number; } | null = null;
+  private readonly CAPABILITIES_CACHE_DURATION = 2 * 60 * 1000; // 2 minutes cache duration
 
   constructor() {
     this.initializeWorker();
@@ -158,12 +160,28 @@ class BackendDetectionWorkerService {
   }
 
   async detectCapabilities(): Promise<BackendCapabilities> {
+    // Check service-level cache first
+    if (this.cachedCapabilities) {
+      const now = Date.now();
+      if (now - this.cachedCapabilities.timestamp < this.CAPABILITIES_CACHE_DURATION) {
+        return this.cachedCapabilities.capabilities;
+      }
+    }
+
     try {
-      return await this.sendWorkerRequest('detectCapabilities');
+      const capabilities = await this.sendWorkerRequest('detectCapabilities');
+      
+      // Cache the result
+      this.cachedCapabilities = {
+        capabilities,
+        timestamp: Date.now()
+      };
+      
+      return capabilities;
     } catch (error) {
       console.error('Failed to detect capabilities:', error);
       // Return safe fallback capabilities
-      return {
+      const fallbackCapabilities = {
         webnn: false,
         webgpu: false,
         wasm: typeof WebAssembly !== 'undefined',
@@ -171,6 +189,14 @@ class BackendDetectionWorkerService {
         simd: false,
         threads: false,
       };
+      
+      // Cache fallback results for a short time to prevent immediate retries
+      this.cachedCapabilities = {
+        capabilities: fallbackCapabilities,
+        timestamp: Date.now()
+      };
+      
+      return fallbackCapabilities;
     }
   }
 
@@ -221,6 +247,7 @@ class BackendDetectionWorkerService {
   // Force refresh - clear cache and run new benchmarks
   async forceRefresh(onProgress?: (progress: number) => void): Promise<BenchmarkResults> {
     this.cachedResults = null;
+    this.cachedCapabilities = null;
     return this.benchmarkFlops(onProgress);
   }
 
@@ -232,6 +259,7 @@ class BackendDetectionWorkerService {
     this.isInitialized = false;
     this.pendingRequests.clear();
     this.cachedResults = null;
+    this.cachedCapabilities = null;
   }
 }
 

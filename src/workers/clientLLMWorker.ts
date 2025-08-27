@@ -57,6 +57,33 @@ let currentModelName = '';
 let webGPUSupported = false;
 let simdSupported = false;
 
+// Global WebGPU detection cache to prevent repeated adapter requests
+let webGPUDetectionCache: { result: boolean; timestamp: number; } | null = null;
+const WEBGPU_CACHE_DURATION = 5 * 60 * 1000; // 5 minutes cache duration
+
+// Function to suppress WebGPU experimental warnings temporarily
+function suppressWebGPUWarnings<T>(fn: () => Promise<T>): Promise<T> {
+  // Store original console.warn
+  const originalWarn = console.warn;
+  
+  // Create filtered console.warn that suppresses WebGPU experimental warnings
+  console.warn = (...args: any[]) => {
+    const message = args.join(' ');
+    if (message.includes('WebGPU is experimental') || 
+        message.includes('Failed to create WebGPU Context Provider')) {
+      // Suppress these specific warnings
+      return;
+    }
+    // Allow other warnings through
+    originalWarn.apply(console, args);
+  };
+  
+  // Execute function and restore console.warn
+  return fn().finally(() => {
+    console.warn = originalWarn;
+  });
+}
+
 // Worker message types
 interface WorkerRequest {
   id: string;
@@ -92,36 +119,61 @@ async function detectCapabilities() {
 
 // Test WebGPU support with actual device creation
 async function testWebGPUSupport(): Promise<boolean> {
-  try {
-    if (!('gpu' in navigator) || typeof (navigator as any).gpu?.requestAdapter !== 'function') {
-      return false;
+  // Check cache first
+  if (webGPUDetectionCache) {
+    const now = Date.now();
+    if (now - webGPUDetectionCache.timestamp < WEBGPU_CACHE_DURATION) {
+      return webGPUDetectionCache.result;
     }
-    
-    const adapter = await (navigator as any).gpu.requestAdapter({
-      powerPreference: 'high-performance'
-    });
-    
-    if (!adapter) {
-      return false;
-    }
-    
-    // Try to create a device to ensure WebGPU is actually functional
-    try {
-      const device = await adapter.requestDevice();
-      if (device && device.queue) {
-        device.destroy?.(); // Clean up the test device
-        return true;
-      }
-    } catch (deviceError) {
-      console.warn('[Worker] WebGPU device creation failed:', deviceError);
-      return false;
-    }
-    
-    return false;
-  } catch (error) {
-    console.warn('[Worker] WebGPU detection failed:', error);
-    return false;
   }
+
+  // Perform detection with warning suppression
+  const result = await suppressWebGPUWarnings(async () => {
+    try {
+      if (!('gpu' in navigator) || typeof (navigator as any).gpu?.requestAdapter !== 'function') {
+        return false;
+      }
+      
+      const adapter = await (navigator as any).gpu.requestAdapter({
+        powerPreference: 'high-performance'
+      });
+      
+      if (!adapter) {
+        return false;
+      }
+      
+      // Try to create a device to ensure WebGPU is actually functional
+      try {
+        const device = await adapter.requestDevice();
+        if (device && device.queue) {
+          device.destroy?.(); // Clean up the test device
+          return true;
+        }
+      } catch (deviceError) {
+        // Only log device errors that aren't experimental warnings
+        if (!deviceError || !String(deviceError).includes('experimental')) {
+          console.warn('[Worker] WebGPU device creation failed:', deviceError);
+        }
+        return false;
+      }
+      
+      return false;
+    } catch (error) {
+      // Only log errors that aren't experimental warnings
+      if (!error || !String(error).includes('experimental')) {
+        console.warn('[Worker] WebGPU detection failed:', error);
+      }
+      return false;
+    }
+  });
+
+  // Cache the result
+  webGPUDetectionCache = {
+    result,
+    timestamp: Date.now()
+  };
+
+  return result;
 }
 
 // Configure transformers.js environment for optimal performance

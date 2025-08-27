@@ -19,6 +19,33 @@ interface WorkerResponse {
 // Cached capabilities to avoid re-detection
 let cachedCapabilities: BackendCapabilities | null = null;
 
+// Global WebGPU detection cache to prevent repeated adapter requests
+let webGPUDetectionCache: { result: boolean; timestamp: number; } | null = null;
+const WEBGPU_CACHE_DURATION = 5 * 60 * 1000; // 5 minutes cache duration
+
+// Function to suppress WebGPU experimental warnings temporarily
+function suppressWebGPUWarnings<T>(fn: () => Promise<T>): Promise<T> {
+  // Store original console.warn
+  const originalWarn = console.warn;
+  
+  // Create filtered console.warn that suppresses WebGPU experimental warnings
+  console.warn = (...args: any[]) => {
+    const message = args.join(' ');
+    if (message.includes('WebGPU is experimental') || 
+        message.includes('Failed to create WebGPU Context Provider')) {
+      // Suppress these specific warnings
+      return;
+    }
+    // Allow other warnings through
+    originalWarn.apply(console, args);
+  };
+  
+  // Execute function and restore console.warn
+  return fn().finally(() => {
+    console.warn = originalWarn;
+  });
+}
+
 // Detect backend capabilities in worker
 async function detectCapabilities(): Promise<BackendCapabilities> {
   if (cachedCapabilities) {
@@ -62,38 +89,63 @@ async function detectWebNN(): Promise<boolean> {
 }
 
 async function detectWebGPU(): Promise<boolean> {
-  try {
-    if (!('gpu' in navigator) || typeof (navigator as any).gpu?.requestAdapter !== 'function') {
-      return false;
+  // Check cache first
+  if (webGPUDetectionCache) {
+    const now = Date.now();
+    if (now - webGPUDetectionCache.timestamp < WEBGPU_CACHE_DURATION) {
+      return webGPUDetectionCache.result;
     }
-    
-    // Actually test if we can get an adapter and device
-    const adapter = await (navigator as any).gpu.requestAdapter({
-      powerPreference: 'high-performance'
-    });
-    
-    if (!adapter) {
-      return false;
-    }
-    
-    // Try to create a device to ensure WebGPU is actually functional
-    try {
-      const device = await adapter.requestDevice();
-      // Test device functionality with a simple operation
-      if (device && device.queue) {
-        device.destroy?.(); // Clean up the test device
-        return true;
-      }
-    } catch (deviceError) {
-      console.warn('[Backend Detection Worker] WebGPU device creation failed:', deviceError);
-      return false;
-    }
-    
-    return false;
-  } catch (error) {
-    console.warn('[Backend Detection Worker] WebGPU detection failed:', error);
-    return false;
   }
+
+  // Perform detection with warning suppression
+  const result = await suppressWebGPUWarnings(async () => {
+    try {
+      if (!('gpu' in navigator) || typeof (navigator as any).gpu?.requestAdapter !== 'function') {
+        return false;
+      }
+      
+      // Actually test if we can get an adapter and device
+      const adapter = await (navigator as any).gpu.requestAdapter({
+        powerPreference: 'high-performance'
+      });
+      
+      if (!adapter) {
+        return false;
+      }
+      
+      // Try to create a device to ensure WebGPU is actually functional
+      try {
+        const device = await adapter.requestDevice();
+        // Test device functionality with a simple operation
+        if (device && device.queue) {
+          device.destroy?.(); // Clean up the test device
+          return true;
+        }
+      } catch (deviceError) {
+        // Only log device errors that aren't experimental warnings
+        if (!deviceError || !String(deviceError).includes('experimental')) {
+          console.warn('[Backend Detection Worker] WebGPU device creation failed:', deviceError);
+        }
+        return false;
+      }
+      
+      return false;
+    } catch (error) {
+      // Only log errors that aren't experimental warnings
+      if (!error || !String(error).includes('experimental')) {
+        console.warn('[Backend Detection Worker] WebGPU detection failed:', error);
+      }
+      return false;
+    }
+  });
+
+  // Cache the result
+  webGPUDetectionCache = {
+    result,
+    timestamp: Date.now()
+  };
+
+  return result;
 }
 
 function detectWASM(): boolean {
@@ -152,26 +204,27 @@ function detectThreads(): boolean {
 
 // Benchmark WebGPU performance in worker
 async function benchmarkWebGPU(onProgress?: (progress: number) => void): Promise<FlopsResult> {
-  try {
-    onProgress?.(10); // Starting WebGPU benchmark
-    
-    const adapter = await (navigator as any).gpu.requestAdapter({
-      powerPreference: 'high-performance',
-      forceFallbackAdapter: false
-    });
-    
-    if (!adapter) {
-      throw new Error('WebGPU adapter not available');
-    }
+  return await suppressWebGPUWarnings(async () => {
+    try {
+      onProgress?.(10); // Starting WebGPU benchmark
+      
+      const adapter = await (navigator as any).gpu.requestAdapter({
+        powerPreference: 'high-performance',
+        forceFallbackAdapter: false
+      });
+      
+      if (!adapter) {
+        throw new Error('WebGPU adapter not available');
+      }
 
-    onProgress?.(30); // Adapter obtained
-    
-    const device = await adapter.requestDevice({
-      requiredFeatures: [],
-      requiredLimits: {}
-    });
-    
-    onProgress?.(50); // Device created
+      onProgress?.(30); // Adapter obtained
+      
+      const device = await adapter.requestDevice({
+        requiredFeatures: [],
+        requiredLimits: {}
+      });
+      
+      onProgress?.(50); // Device created
     
     const start = performance.now();
     
@@ -259,28 +312,29 @@ async function benchmarkWebGPU(onProgress?: (progress: number) => void): Promise
     await device.queue.onSubmittedWorkDone();
     
     const duration = performance.now() - start;
-    onProgress?.(100); // Complete
-    
-    // Calculate FLOPS: 6 operations per inner loop * 100 iterations * bufferSize elements
-    const operations = 6 * 100 * bufferSize;
-    const flopsPerSecond = duration > 0 ? (operations / duration) * 1000 : 0;
+      onProgress?.(100); // Complete
+      
+      // Calculate FLOPS: 6 operations per inner loop * 100 iterations * bufferSize elements
+      const operations = 6 * 100 * bufferSize;
+      const flopsPerSecond = duration > 0 ? (operations / duration) * 1000 : 0;
 
-    // Clean up resources
-    buffer.destroy();
+      // Clean up resources
+      buffer.destroy();
 
-    return {
-      backend: 'WebGPU',
-      flopsPerSecond: isFinite(flopsPerSecond) ? flopsPerSecond : 0,
-      duration,
-    };
-  } catch (error) {
-    return {
-      backend: 'WebGPU',
-      flopsPerSecond: 0,
-      duration: 0,
-      error: error instanceof Error ? error.message : 'Unknown error',
-    };
-  }
+      return {
+        backend: 'WebGPU',
+        flopsPerSecond: isFinite(flopsPerSecond) ? flopsPerSecond : 0,
+        duration,
+      };
+    } catch (error) {
+      return {
+        backend: 'WebGPU',
+        flopsPerSecond: 0,
+        duration: 0,
+        error: error instanceof Error ? error.message : 'Unknown error',
+      };
+    }
+  });
 }
 
 // Benchmark WASM performance
@@ -432,63 +486,65 @@ async function getWebGPUDiagnostics(): Promise<{
   limits?: any;
   error?: string;
 }> {
-  try {
-    if (!('gpu' in navigator)) {
-      return { available: false, error: 'WebGPU not available in this browser' };
-    }
-
-    const adapter = await (navigator as any).gpu.requestAdapter({
-      powerPreference: 'high-performance'
-    });
-
-    if (!adapter) {
-      return { available: false, error: 'No WebGPU adapter available' };
-    }
-
-    // Try to create a device to test actual functionality
-    let device = null;
+  return await suppressWebGPUWarnings(async () => {
     try {
-      device = await adapter.requestDevice({
-        requiredFeatures: [],
-        requiredLimits: {}
-      });
-      
-      // Test basic device functionality
-      if (!device || !device.queue) {
-        device?.destroy?.();
-        return { available: false, error: 'WebGPU device creation succeeded but device is non-functional' };
+      if (!('gpu' in navigator)) {
+        return { available: false, error: 'WebGPU not available in this browser' };
       }
-    } catch (deviceError) {
-      return { 
-        available: false, 
-        error: `WebGPU device creation failed: ${deviceError instanceof Error ? deviceError.message : 'Unknown device error'}` 
+
+      const adapter = await (navigator as any).gpu.requestAdapter({
+        powerPreference: 'high-performance'
+      });
+
+      if (!adapter) {
+        return { available: false, error: 'No WebGPU adapter available' };
+      }
+
+      // Try to create a device to test actual functionality
+      let device = null;
+      try {
+        device = await adapter.requestDevice({
+          requiredFeatures: [],
+          requiredLimits: {}
+        });
+        
+        // Test basic device functionality
+        if (!device || !device.queue) {
+          device?.destroy?.();
+          return { available: false, error: 'WebGPU device creation succeeded but device is non-functional' };
+        }
+      } catch (deviceError) {
+        return { 
+          available: false, 
+          error: `WebGPU device creation failed: ${deviceError instanceof Error ? deviceError.message : 'Unknown device error'}` 
+        };
+      }
+      
+      const result = {
+        available: true,
+        adapter: {
+          vendor: adapter.info?.vendor || 'Unknown',
+          architecture: adapter.info?.architecture || 'Unknown',
+          device: adapter.info?.device || 'Unknown',
+          description: adapter.info?.description || 'Unknown'
+        },
+        features: Array.from(adapter.features || []).map(f => String(f)),
+        limits: adapter.limits ? Object.fromEntries(
+          Object.entries(adapter.limits).map(([key, value]) => [key, value])
+        ) : {}
+      };
+      
+      // Clean up the test device
+      device?.destroy?.();
+      
+      return result;
+    } catch (error) {
+      return {
+        available: false,
+        error: error instanceof Error ? error.message : 'Unknown error'
       };
     }
-    
-    const result = {
-      available: true,
-      adapter: {
-        vendor: adapter.info?.vendor || 'Unknown',
-        architecture: adapter.info?.architecture || 'Unknown',
-        device: adapter.info?.device || 'Unknown',
-        description: adapter.info?.description || 'Unknown'
-      },
-      features: Array.from(adapter.features || []).map(f => String(f)),
-      limits: adapter.limits ? Object.fromEntries(
-        Object.entries(adapter.limits).map(([key, value]) => [key, value])
-      ) : {}
-    };
-    
-    // Clean up the test device
-    device?.destroy?.();
-    
-    return result;
-  } catch (error) {
-    return {
-      available: false,
-      error: error instanceof Error ? error.message : 'Unknown error'
-    };
-  }
+  });
 }
 
 // Handle messages from the main thread
