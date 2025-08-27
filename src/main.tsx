@@ -7,6 +7,7 @@ import 'react-toastify/dist/ReactToastify.css';
 import StaticDataProvider from './components/StaticDataProvider.tsx';
 
 // Global error instrumentation to capture unhandled promise rejections and errors
+// Force rebuild to fix 404 error for index-11b51ec9.js (will generate new hash)
 if (typeof window !== 'undefined') {
   window.onunhandledrejection = (event) => {
     try {
