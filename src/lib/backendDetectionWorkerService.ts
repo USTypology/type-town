@@ -134,18 +134,26 @@ class BackendDetectionWorkerService {
 
   // Fallback implementation for when worker is not available
   private async fallbackToMainThread(type: string, data?: any): Promise<any> {
-    // Import the original backend detector as fallback
-    const { backendDetector } = await import('./backendDetection');
+    console.warn(`[BackendDetectionWorkerService] Worker not available, falling back to main thread for: ${type}`);
     
-    switch (type) {
-      case 'detectCapabilities':
-        return await backendDetector.detectCapabilities();
-      case 'benchmarkFlops':
-        return await backendDetector.benchmarkFlops();
-      case 'getWebGPUDiagnostics':
-        return await backendDetector.getWebGPUDiagnostics();
-      default:
-        throw new Error(`Unknown fallback type: ${type}`);
+    try {
+      // Import the original backend detector as fallback
+      const { backendDetector } = await import('./backendDetection');
+      
+      switch (type) {
+        case 'detectCapabilities':
+          return await backendDetector.detectCapabilities();
+        case 'benchmarkFlops':
+          console.warn('[BackendDetectionWorkerService] Running benchmarks on main thread - UI may freeze temporarily');
+          return await backendDetector.benchmarkFlops();
+        case 'getWebGPUDiagnostics':
+          return await backendDetector.getWebGPUDiagnostics();
+        default:
+          throw new Error(`Unknown fallback type: ${type}`);
+      }
+    } catch (importError) {
+      console.error(`[BackendDetectionWorkerService] Fallback failed for ${type}:`, importError);
+      throw new Error(`Fallback failed: ${importError instanceof Error ? importError.message : 'Unknown error'}`);
     }
   }
 

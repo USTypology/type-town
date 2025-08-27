@@ -459,13 +459,19 @@ self.onmessage = async (event: MessageEvent<WorkerRequest>) => {
     
     // Progress callback to send progress updates
     const sendProgress = (progress: number) => {
-      const progressResponse: WorkerResponse = {
-        id,
-        success: true,
-        progress,
-      };
-      self.postMessage(progressResponse);
+      try {
+        const progressResponse: WorkerResponse = {
+          id,
+          success: true,
+          progress,
+        };
+        self.postMessage(progressResponse);
+      } catch (progressError) {
+        console.error('[Backend Worker] Failed to send progress:', progressError);
+      }
     };
+    
+    console.log(`[Backend Worker] Processing request: ${type}`);
     
     switch (type) {
       case 'detectCapabilities':
@@ -490,9 +496,12 @@ self.onmessage = async (event: MessageEvent<WorkerRequest>) => {
       data: responseData,
     };
     
+    console.log(`[Backend Worker] Request ${type} completed successfully`);
     self.postMessage(response);
     
   } catch (error) {
+    console.error(`[Backend Worker] Request ${type} failed:`, error);
+    
     const response: WorkerResponse = {
       id,
       success: false,

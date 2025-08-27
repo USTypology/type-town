@@ -558,9 +558,9 @@ export default function SimpleAgentWorld() {
       {/* Status bar */}
       <div className="bg-gray-800 text-white p-2 text-sm flex justify-between">
         <div>
-          LLM Status: {clientLLM.isReady() ? 
-            `🟢 ${clientLLM.getCurrentModelConfig()?.name || clientLLM.getCurrentModel()}` : 
-            '🟡 Loading...'}
+          LLM Status: {llmReady ? 
+            `🟢 ${clientLLMWorkerService.getCurrentModel()}` : 
+            llmLoading ? '🟡 Loading...' : '🔴 Not Ready'}
         </div>
         <div>
           Simulation: {isSimulationRunning ? '🟢 Running' : '🔴 Stopped'}
