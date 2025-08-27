@@ -17,10 +17,7 @@ export default defineConfig({
     target: 'es2020', // Ensure modern browser features are supported
     rollupOptions: {
       onwarn(warning, warn) {
-        // Ignore specific warnings about missing PIXI modules
-        if (warning.code === 'UNRESOLVED_IMPORT' && warning.message.includes('@pixi/mixin-get-globalThis-position')) {
-          return;
-        }
+        // All warnings are now processed normally
         warn(warning);
       },
     },
@@ -28,7 +25,7 @@ export default defineConfig({
   optimizeDeps: {
     exclude: ['@xenova/transformers'], // Exclude transformers.js from pre-bundling to avoid issues with WASM
   },
-  define: {
-    global: 'globalThis', // Polyfill for global in browser environment
-  },
+  // define: {
+  //   global: 'globalThis', // Commented out to avoid breaking module name resolution
+  // },
 });
