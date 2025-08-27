@@ -89,24 +89,59 @@ class ClientLLMService {
           console.warn(`WebGPU initialization failed: ${webgpuInit.message}. Falling back to DistilGPT-2.`);
           return this.initialize('Xenova/distilgpt2');
         }
+
+        // Set execution providers for ONNX Runtime
+        try {
+          const { env } = await import('@xenova/transformers');
+          if (env.backends?.onnx) {
+            // Set WebGPU as the preferred execution provider
+            (env.backends.onnx as any).executionProviders = ['webgpu', 'wasm'];
+            console.log('Set execution providers: WebGPU (primary), WASM (fallback)');
+          }
+        } catch (epError) {
+          console.warn('Could not set execution providers:', epError);
+        }
       } else {
         // Use WASM/CPU fallback
         try {
-          (env.backends.onnx.wasm as any).useGpu = false;
+          const { env } = await import('@xenova/transformers');
+          if (env.backends?.onnx) {
+            (env.backends.onnx as any).executionProviders = ['wasm', 'cpu'];
+            if (env.backends.onnx.wasm) {
+              (env.backends.onnx.wasm as any).useGpu = false;
+            }
+          }
         } catch {
           // Ignore if not available
         }
       }
 
+      // Import env for thread configuration
+      const { env } = await import('@xenova/transformers');
+      
       // Set appropriate thread count based on device capabilities
-      if (capabilities.threads) {
-        env.backends.onnx.wasm.numThreads = Math.min(navigator.hardwareConcurrency, 4);
+      if (capabilities.threads && env.backends?.onnx?.wasm) {
+        (env.backends.onnx.wasm as any).numThreads = Math.min(navigator.hardwareConcurrency, 4);
       }
 
       console.log(`Initializing ${modelConfig?.name || targetModel}...`);
-      this.textGenerator = await pipeline('text-generation', targetModel, {
+      
+      // Configure pipeline options based on available backends
+      const pipelineOptions: any = {
         quantized: !modelConfig?.requiresWebGPU, // Use quantization for non-WebGPU models
-      } as any) as TextGenerationPipeline;
+      };
+
+      // If WebGPU is available and model requires it, configure WebGPU device
+      if (capabilities.webgpu && modelConfig?.requiresWebGPU) {
+        pipelineOptions.device = 'webgpu'; // Use WebGPU device
+        pipelineOptions.dtype = 'fp16'; // Use half precision for WebGPU to save memory
+        console.log('Configuring pipeline for WebGPU with FP16 precision');
+      } else if (capabilities.wasm) {
+        pipelineOptions.device = 'wasm'; // Explicitly use WASM
+        console.log('Configuring pipeline for WASM backend');
+      }
+
+      this.textGenerator = await pipeline('text-generation', targetModel, pipelineOptions) as TextGenerationPipeline;
 
       this.currentModel = targetModel;
       console.log(`Successfully loaded ${modelConfig?.name || targetModel}`);

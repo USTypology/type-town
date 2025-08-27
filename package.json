@@ -30,6 +30,7 @@
     "hnswlib-node": "^1.4.2",
     "hnswlib-wasm": "^0.8.2",
     "libp2p": "^2.10.0",
+    "onnxruntime-web": "^1.22.0",
     "parquet-wasm": "^0.6.1",
     "pixi-viewport": "^5.0.1",
     "pixi.js": "^7.2.4",
