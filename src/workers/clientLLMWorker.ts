@@ -149,6 +149,9 @@ async function testWebGPUSupport(): Promise<boolean> {
           device.destroy?.(); // Clean up the test device
           return true;
         }
+        // If device exists but doesn't have queue, it's not functional
+        device?.destroy?.();
+        return false;
       } catch (deviceError) {
         // Only log device errors that aren't experimental warnings
         if (!deviceError || !String(deviceError).includes('experimental')) {
@@ -156,8 +159,6 @@ async function testWebGPUSupport(): Promise<boolean> {
         }
         return false;
       }
-      
-      return false;
     } catch (error) {
       // Only log errors that aren't experimental warnings
       if (!error || !String(error).includes('experimental')) {

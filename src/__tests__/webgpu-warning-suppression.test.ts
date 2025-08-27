@@ -3,7 +3,7 @@ import { describe, test, expect, beforeEach, jest } from '@jest/globals';
 
 describe('WebGPU Warning Suppression', () => {
   let originalWarn: typeof console.warn;
-  let warnSpy: jest.SpyInstance;
+  let warnSpy: ReturnType<typeof jest.spyOn>;
 
   beforeEach(() => {
     originalWarn = console.warn;
