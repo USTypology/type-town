@@ -7,6 +7,7 @@ import UserControls from './UserControls';
 import WorldManager from './WorldManager';
 import BackendInfo from './BackendInfo';
 import ModelSelector from './ModelSelector';
+import LLMTestComponent from './LLMTestComponent';
 import NPCControlPanel from './NPCControlPanel';
 import { PixiStaticMap } from './PixiStaticMap';
 import { Character } from './Character';
@@ -398,6 +399,9 @@ export default function SimpleAgentWorld() {
 
           {/* Model Selector */}
           <ModelSelector />
+
+          {/* LLM Comprehensive Test */}
+          <LLMTestComponent />
 
           {/* LLM Loading Status */}
           {(llmLoading || llmLoadingMessage) && (

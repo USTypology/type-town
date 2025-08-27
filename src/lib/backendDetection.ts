@@ -498,41 +498,63 @@ export class BackendDetector {
       // Import transformers env and try to enable WebGPU
       const { env } = await import('@xenova/transformers');
       
-      // Set WebGPU backend preferences
+      // Configure WebGPU backend for transformers.js
       try {
-        // First, try to enable WebGPU through ONNX backend settings
-        if (env.backends.onnx.webgpu && typeof env.backends.onnx.webgpu === 'object') {
-          // Check if webgpu backend has initialization method
-          const webgpuBackend = env.backends.onnx.webgpu as any;
-          if (webgpuBackend.initialize) {
-            await webgpuBackend.initialize();
+        // Set the preferred backend order to prioritize WebGPU
+        if (env.backends && env.backends.onnx) {
+          // Enable WebGPU backend if available
+          if (env.backends.onnx.webgpu) {
+            // Set WebGPU as the preferred backend
+            (env.backends.onnx as any).preferredBackend = 'webgpu';
+            console.log('Setting WebGPU as preferred backend for ONNX Runtime');
           }
-          return {
-            success: true,
-            message: 'WebGPU backend enabled in transformers.js'
-          };
-        } else {
-          // Fallback: try to enable through WASM backend settings with GPU
-          (env.backends.onnx.wasm as any).useGpu = true;
-          (env.backends.onnx.wasm as any).numThreads = Math.min(navigator.hardwareConcurrency, 4);
+
+          // Ensure WASM backend is also optimally configured as fallback
+          if (env.backends.onnx.wasm) {
+            (env.backends.onnx.wasm as any).numThreads = Math.min(navigator.hardwareConcurrency || 4, 4);
+            (env.backends.onnx.wasm as any).simd = true; // Enable SIMD if available
+            console.log(`Configured WASM backend: ${(env.backends.onnx.wasm as any).numThreads} threads, SIMD enabled`);
+          }
+        }
+
+        // Try to initialize ONNX Runtime with WebGPU support directly
+        if (typeof (window as any).ort !== 'undefined') {
+          const ort = (window as any).ort;
+          if (ort.env) {
+            // Configure ONNX Runtime environment
+            ort.env.wasm.numThreads = Math.min(navigator.hardwareConcurrency || 4, 4);
+            ort.env.wasm.simd = true;
+            
+            // Set WebGPU as execution provider preference
+            if (ort.env.webgpu) {
+              ort.env.webgpu.validateInputContent = false; // Improve performance
+              console.log('Configured ONNX Runtime WebGPU execution provider');
+            }
+          }
+        }
+
+        return {
+          success: true,
+          message: 'WebGPU backend configuration completed for transformers.js'
+        };
+      } catch (transformersError) {
+        console.warn('WebGPU configuration failed, falling back to WASM:', transformersError);
+        
+        // Fallback: at least optimize WASM settings
+        try {
+          if (env.backends?.onnx?.wasm) {
+            (env.backends.onnx.wasm as any).numThreads = Math.min(navigator.hardwareConcurrency || 4, 4);
+            (env.backends.onnx.wasm as any).simd = true;
+          }
           
           return {
             success: true,
-            message: 'GPU acceleration enabled through WASM backend'
-          };
-        }
-      } catch (transformersError) {
-        // Fallback: at least optimize WASM settings
-        try {
-          (env.backends.onnx.wasm as any).numThreads = Math.min(navigator.hardwareConcurrency, 4);
-          return {
-            success: true,
-            message: 'Multi-threading enabled for WASM backend'
+            message: 'WebGPU unavailable, using optimized WASM backend with multi-threading'
           };
         } catch {
           return {
             success: false,
-            message: `Failed to configure backends: ${transformersError instanceof Error ? transformersError.message : 'Unknown error'}`
+            message: `Failed to configure any backend: ${transformersError instanceof Error ? transformersError.message : 'Unknown error'}`
           };
         }
       }

@@ -83,6 +83,29 @@ export default function BackendInfo({ className = '' }: BackendInfoProps) {
     }
   };
 
+  const testLlamaModel = async () => {
+    try {
+      const { clientLLM } = await import('../lib/clientLLM');
+      
+      alert('Starting Llama 1B test. This will download ~637MB. Check console for progress...');
+      
+      console.log('Testing Llama 1B model with WebGPU...');
+      await clientLLM.switchModel('onnx-community/Llama-3.2-1B-Instruct');
+      
+      const testPrompt = 'Hello, how are you today?';
+      console.log(`Testing with prompt: "${testPrompt}"`);
+      
+      const response = await clientLLM.generateResponse(testPrompt, 50);
+      console.log(`Llama 1B response: "${response}"`);
+      
+      alert(`Llama 1B Test Successful!\n\nPrompt: ${testPrompt}\nResponse: ${response}\n\nCheck console for detailed logs.`);
+    } catch (error) {
+      console.error('Llama model test failed:', error);
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+      alert(`Llama 1B Test Failed: ${errorMessage}\n\nThis might be normal if your device doesn't support WebGPU or has insufficient RAM. Check console for details.`);
+    }
+  };
+
   const initializeWebGPU = async () => {
     try {
       // Import the original backend detector for WebGPU initialization
@@ -204,12 +227,20 @@ export default function BackendInfo({ className = '' }: BackendInfoProps) {
                   <h4 className="font-semibold mb-2 flex items-center gap-2">
                     WebGPU Diagnostics
                     {webgpuDiagnostics.available && (
-                      <button
-                        onClick={initializeWebGPU}
-                        className="px-2 py-1 bg-blue-600 hover:bg-blue-700 text-xs rounded"
-                      >
-                        Initialize for LLM
-                      </button>
+                      <div className="flex gap-2">
+                        <button
+                          onClick={initializeWebGPU}
+                          className="px-2 py-1 bg-blue-600 hover:bg-blue-700 text-xs rounded"
+                        >
+                          Initialize for LLM
+                        </button>
+                        <button
+                          onClick={testLlamaModel}
+                          className="px-2 py-1 bg-green-600 hover:bg-green-700 text-xs rounded"
+                        >
+                          Test Llama 1B
+                        </button>
+                      </div>
                     )}
                   </h4>
                   {webgpuDiagnostics.available ? (
