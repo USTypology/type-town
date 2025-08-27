@@ -48,7 +48,7 @@ export default function AppStatic() {
 
       <div className="w-full min-h-screen relative isolate overflow-hidden p-4 lg:p-8 shadow-2xl flex flex-col">
         <h1 className="mx-auto text-4xl p-3 sm:text-6xl lg:text-8xl font-bold font-display leading-none tracking-wide game-title w-full text-center mb-4">
-          Type Town
+          Typology World
         </h1>
 
         <div className="flex-1 max-w-full overflow-hidden">

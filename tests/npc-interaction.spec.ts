@@ -1,13 +1,13 @@
 import { test, expect, Page } from '@playwright/test';
 
-test.describe('Type Town NPC Interaction and Map Display Tests', () => {
+test.describe('Typology World NPC Interaction and Map Display Tests', () => {
   
   test.beforeEach(async ({ page }) => {
     // Navigate to the main page
     await page.goto('/');
     
     // Wait for the game to load
-    await expect(page.locator('h1')).toContainText('Type Town');
+    await expect(page.locator('h1')).toContainText('Typology World');
   });
 
   test('should detect backend capabilities and show performance metrics with model selection', async ({ page }) => {

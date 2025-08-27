@@ -230,7 +230,7 @@ export default function SimpleAgentWorld() {
         </div>
       </div>
 
-      <div className="flex-1 grid grid-cols-1 xl:grid-cols-5 gap-4 p-4 min-h-0">
+      <div className="flex-1 grid grid-cols-1 xl:grid-cols-5 gap-4 p-4 min-h-0 bg-gray-900">
         {/* PIXI Agent World Map */}
         <div 
           ref={canvasContainerRef}
@@ -354,7 +354,7 @@ export default function SimpleAgentWorld() {
           {agents.length === 0 && !isSimulationRunning && (
             <div className="absolute inset-0 flex items-center justify-center bg-black bg-opacity-50 text-white">
               <div className="text-center p-6 bg-brown-800 rounded-lg">
-                <h3 className="text-xl font-bold mb-2">Welcome to Type Town!</h3>
+                <h3 className="text-xl font-bold mb-2">Welcome to Typology World!</h3>
                 <p className="mb-4">Click "Start Simulation" to populate the world with AI agents</p>
                 <p className="text-sm text-gray-300">Or create a character to join the simulation yourself</p>
               </div>
