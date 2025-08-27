@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { Stage, Container } from '@pixi/react';
 import { agentSimulation, Agent, Conversation } from '../lib/staticAgentSimulation';
-import { clientLLM } from '../lib/clientLLM';
+import { clientLLMWorkerService } from '../lib/clientLLMWorkerService';
 import { worldPersistence } from '../lib/worldPersistence';
 import UserControls from './UserControls';
 import WorldManager from './WorldManager';
@@ -51,6 +51,8 @@ export default function SimpleAgentWorld() {
   const [agents, setAgents] = useState<Agent[]>([]);
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [llmReady, setLLMReady] = useState(false);
+  const [llmLoading, setLLMLoading] = useState(false);
+  const [llmLoadingMessage, setLLMLoadingMessage] = useState('');
   const [isSimulationRunning, setIsSimulationRunning] = useState(false);
   const [selectedAgent, setSelectedAgent] = useState<Agent | null>(null);
   const [userCharacterId, setUserCharacterId] = useState<string>();
@@ -75,13 +77,32 @@ export default function SimpleAgentWorld() {
     };
     initPersistence();
 
-    // Initialize LLM
+    // Initialize LLM using worker service
     const initLLM = async () => {
+      setLLMLoading(true);
+      setLLMLoadingMessage('Initializing language model worker...');
+      
       try {
-        await clientLLM.initialize();
+        // Check worker status first
+        const workerStatus = clientLLMWorkerService.getStatus();
+        if (!workerStatus.hasWorker) {
+          throw new Error('LLM Worker not available');
+        }
+        
+        setLLMLoadingMessage('Loading language model in background...');
+        await clientLLMWorkerService.initialize();
+        
         setLLMReady(true);
+        setLLMLoadingMessage('Language model ready!');
+        console.log('LLM Worker initialized successfully');
       } catch (error) {
-        console.error('Failed to initialize LLM:', error);
+        console.error('Failed to initialize LLM Worker:', error);
+        setLLMLoadingMessage(`Failed to load language model: ${error instanceof Error ? error.message : 'Unknown error'}`);
+        // Don't set LLMReady to true on error
+      } finally {
+        setLLMLoading(false);
+        // Clear loading message after a few seconds
+        setTimeout(() => setLLMLoadingMessage(''), 3000);
       }
     };
     initLLM();
@@ -378,6 +399,33 @@ export default function SimpleAgentWorld() {
           {/* Model Selector */}
           <ModelSelector />
 
+          {/* LLM Loading Status */}
+          {(llmLoading || llmLoadingMessage) && (
+            <div className="bg-slate-800 text-white rounded-lg p-4">
+              <div className="flex items-center justify-between mb-2">
+                <h3 className="text-lg font-bold">Language Model</h3>
+                <div className="flex items-center gap-2">
+                  {llmLoading && (
+                    <div className="animate-spin h-4 w-4 border-2 border-blue-400 border-t-transparent rounded-full"></div>
+                  )}
+                  <span className={`text-sm ${llmReady ? 'text-green-400' : llmLoading ? 'text-yellow-400' : 'text-red-400'}`}>
+                    {llmReady ? '✅' : llmLoading ? '⏳' : '❌'}
+                  </span>
+                </div>
+              </div>
+              {llmLoadingMessage && (
+                <div className={`text-sm ${llmLoading ? 'text-yellow-300' : llmReady ? 'text-green-300' : 'text-red-300'}`}>
+                  {llmLoadingMessage}
+                </div>
+              )}
+              {llmLoading && (
+                <div className="text-xs text-gray-400 mt-2">
+                  Running in background worker - UI remains responsive
+                </div>
+              )}
+            </div>
+          )}
+
           {/* NPC Control Panel */}
           <NPCControlPanel 
             selectedAgent={selectedAgent}
@@ -510,9 +558,9 @@ export default function SimpleAgentWorld() {
       {/* Status bar */}
       <div className="bg-gray-800 text-white p-2 text-sm flex justify-between">
         <div>
-          LLM Status: {clientLLM.isReady() ? 
-            `🟢 ${clientLLM.getCurrentModelConfig()?.name || clientLLM.getCurrentModel()}` : 
-            '🟡 Loading...'}
+          LLM Status: {llmReady ? 
+            `🟢 ${clientLLMWorkerService.getCurrentModel()}` : 
+            llmLoading ? '🟡 Loading...' : '🔴 Not Ready'}
         </div>
         <div>
           Simulation: {isSimulationRunning ? '🟢 Running' : '🔴 Stopped'}

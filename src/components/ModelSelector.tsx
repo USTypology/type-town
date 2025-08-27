@@ -1,15 +1,63 @@
 import React, { useState, useEffect } from 'react';
-import { clientLLM, ModelConfig } from '../lib/clientLLM';
-import { backendDetector } from '../lib/backendDetection';
+import { ModelConfig } from '../lib/clientLLM';
+import { clientLLMWorkerService } from '../lib/clientLLMWorkerService';
+import { backendDetectionWorkerService } from '../lib/backendDetectionWorkerService';
 
 interface ModelSelectorProps {
   className?: string;
 }
 
+// Model configuration (moved from clientLLM since we need it here)
+interface LocalModelConfig {
+  name: string;
+  size: string;
+  requiresWebGPU: boolean;
+  contextLength: number;
+  description: string;
+}
+
+const supportedModels: { [key: string]: LocalModelConfig } = {
+  'Xenova/distilgpt2': {
+    name: 'DistilGPT-2',
+    size: '82MB',
+    requiresWebGPU: false,
+    contextLength: 1024,
+    description: 'Fast, lightweight model suitable for all devices'
+  },
+  'onnx-community/Llama-3.2-1B-Instruct': {
+    name: 'Llama 3.2 1B Instruct',
+    size: '637MB',
+    requiresWebGPU: true,
+    contextLength: 2048,
+    description: 'High-quality instruction-following model (WebGPU required)'
+  },
+  'onnx-community/Llama-3.2-3B-Instruct': {
+    name: 'Llama 3.2 3B Instruct',
+    size: '1.9GB',
+    requiresWebGPU: true,
+    contextLength: 2048,
+    description: 'Advanced instruction model with superior reasoning (WebGPU + 8GB+ RAM)'
+  },
+  'Xenova/LaMini-GPT-774M': {
+    name: 'LaMini-GPT 774M',
+    size: '310MB',
+    requiresWebGPU: false,
+    contextLength: 1024,
+    description: 'Medium-sized model with good performance balance'
+  },
+  'Xenova/gpt2': {
+    name: 'GPT-2',
+    size: '124MB',
+    requiresWebGPU: false,
+    contextLength: 1024,
+    description: 'Classic GPT-2 model, reliable baseline'
+  }
+};
+
 export default function ModelSelector({ className = '' }: ModelSelectorProps) {
-  const [supportedModels, setSupportedModels] = useState<{ [key: string]: ModelConfig }>({});
-  const [currentModel, setCurrentModel] = useState<string>('');
+  const [currentModel, setCurrentModel] = useState<string>('Xenova/distilgpt2');
   const [isLoading, setIsLoading] = useState(false);
+  const [loadingProgress, setLoadingProgress] = useState('');
   const [recommendedModel, setRecommendedModel] = useState<string>('');
   const [capabilities, setCapabilities] = useState<any>(null);
   const [showDetails, setShowDetails] = useState(false);
@@ -20,15 +68,20 @@ export default function ModelSelector({ className = '' }: ModelSelectorProps) {
 
   const initializeModelInfo = async () => {
     try {
-      const models = clientLLM.getSupportedModels();
-      const current = clientLLM.getCurrentModel();
-      const recommended = await clientLLM.getRecommendedModel();
-      const caps = await backendDetector.detectCapabilities();
+      const workerStatus = clientLLMWorkerService.getStatus();
+      setCurrentModel(workerStatus.currentModel);
       
-      setSupportedModels(models);
-      setCurrentModel(current);
-      setRecommendedModel(recommended);
+      const caps = await backendDetectionWorkerService.detectCapabilities();
       setCapabilities(caps);
+      
+      // Determine recommended model based on capabilities
+      if (caps.webgpu) {
+        setRecommendedModel('onnx-community/Llama-3.2-1B-Instruct');
+      } else if (caps.simd) {
+        setRecommendedModel('Xenova/LaMini-GPT-774M');
+      } else {
+        setRecommendedModel('Xenova/distilgpt2');
+      }
     } catch (error) {
       console.error('Failed to initialize model info:', error);
     }
@@ -38,25 +91,44 @@ export default function ModelSelector({ className = '' }: ModelSelectorProps) {
     if (modelName === currentModel) return;
 
     setIsLoading(true);
+    setLoadingProgress('Switching model...');
+    
     try {
-      await clientLLM.switchModel(modelName);
+      // Check if model is compatible before switching
+      const config = supportedModels[modelName];
+      if (config?.requiresWebGPU && !capabilities?.webgpu) {
+        throw new Error(`${config.name} requires WebGPU but it's not available on this device`);
+      }
+
+      setLoadingProgress('Initializing model in background worker...');
+      await clientLLMWorkerService.switchModel(modelName);
+      
       setCurrentModel(modelName);
+      setLoadingProgress(`${config?.name} loaded successfully!`);
+      
+      // Clear success message after 3 seconds
+      setTimeout(() => setLoadingProgress(''), 3000);
     } catch (error) {
       console.error('Failed to switch model:', error);
-      alert(`Failed to load model: ${error}`);
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+      setLoadingProgress(`Failed to load model: ${errorMessage}`);
+      alert(`Failed to load model: ${errorMessage}`);
+      
+      // Clear error message after 5 seconds
+      setTimeout(() => setLoadingProgress(''), 5000);
     } finally {
       setIsLoading(false);
     }
   };
 
-  const getModelStatusIcon = (modelKey: string, config: ModelConfig) => {
+  const getModelStatusIcon = (modelKey: string, config: LocalModelConfig) => {
     if (modelKey === currentModel) return '✅';
     if (modelKey === recommendedModel) return '⭐';
     if (config.requiresWebGPU && !capabilities?.webgpu) return '❌';
     return '⚪';
   };
 
-  const getModelStatusText = (modelKey: string, config: ModelConfig) => {
+  const getModelStatusText = (modelKey: string, config: LocalModelConfig) => {
     if (modelKey === currentModel) return 'Current';
     if (modelKey === recommendedModel) return 'Recommended';
     if (config.requiresWebGPU && !capabilities?.webgpu) return 'WebGPU Required';
@@ -83,6 +155,25 @@ export default function ModelSelector({ className = '' }: ModelSelectorProps) {
         <div className="text-xs text-gray-400">
           {supportedModels[currentModel]?.description}
         </div>
+        
+        {/* Loading indicator */}
+        {isLoading && (
+          <div className="mt-2 flex items-center gap-2">
+            <div className="animate-spin h-4 w-4 border-2 border-blue-400 border-t-transparent rounded-full"></div>
+            <span className="text-sm text-blue-400">{loadingProgress}</span>
+          </div>
+        )}
+        
+        {/* Progress message without spinner */}
+        {!isLoading && loadingProgress && (
+          <div className="mt-2 text-sm text-green-400">{loadingProgress}</div>
+        )}
+        
+        {isLoading && (
+          <div className="text-xs text-gray-400 mt-1">
+            Processing in background worker - UI remains responsive
+          </div>
+        )}
       </div>
 
       {showDetails && (

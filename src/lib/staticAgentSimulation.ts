@@ -466,26 +466,29 @@ export class StaticAgentSimulation {
     // 1. Socialize with nearby agents (higher priority for social characters)
     if (availableAgents.length > 0) {
       const socialScore = this.getSocialScore(agent);
+      const goalBonus = this.getGoalAlignmentBonus(agent, 'socialize');
       decisions.push({
         type: 'socialize',
-        priority: socialScore * 0.4,
-        target: availableAgents[0] // Choose closest available agent
+        priority: (socialScore * 0.4) + goalBonus,
+        target: this.selectBestSocialTarget(agent, availableAgents)
       });
     }
 
     // 2. Explore new areas (good for curious characters)
     const explorationScore = this.getExplorationScore(agent);
+    const explorationGoalBonus = this.getGoalAlignmentBonus(agent, 'explore');
     decisions.push({
       type: 'explore',
-      priority: explorationScore * 0.3,
+      priority: (explorationScore * 0.3) + explorationGoalBonus,
       target: this.findInterestingDestination(agent)
     });
 
     // 3. Return to a familiar location (comfort-seeking behavior)
     if (agent.memories && agent.memories.length > 0) {
+      const homeGoalBonus = this.getGoalAlignmentBonus(agent, 'return_home');
       decisions.push({
         type: 'return_home',
-        priority: 0.2,
+        priority: 0.2 + homeGoalBonus,
         target: this.getHomeLocation(agent)
       });
     }
@@ -501,16 +504,32 @@ export class StaticAgentSimulation {
   }
 
   private getSocialScore(agent: Agent): number {
-    // Base social tendency from identity
+    // Base social tendency from identity and plan
     let score = 0.5;
-    if (agent.identity?.toLowerCase().includes('social') || 
-        agent.identity?.toLowerCase().includes('friendly') ||
-        agent.identity?.toLowerCase().includes('outgoing')) {
+    const identity = agent.identity?.toLowerCase() || '';
+    const plan = agent.plan?.toLowerCase() || '';
+    
+    // Analyze personality traits for sociability
+    if (identity.includes('charming') || identity.includes('sociopath') || identity.includes('trick people')) {
+      score += 0.4; // Stella-like characters are very social for manipulation
+    }
+    if (identity.includes('excited to tell people') || identity.includes('infinitely patient')) {
+      score += 0.3; // Lucky-like characters love sharing
+    }
+    if (identity.includes('grumpy') || identity.includes('avoid people') || 
+        identity.includes('get out of the conversation')) {
+      score -= 0.4; // Bob-like characters avoid interaction
+    }
+    if (identity.includes('lonely') || identity.includes('withdrawn')) {
+      score -= 0.2;
+    }
+    
+    // Consider current goals and plans
+    if (plan.includes('gossip') || plan.includes('tell people')) {
       score += 0.3;
     }
-    if (agent.identity?.toLowerCase().includes('shy') || 
-        agent.identity?.toLowerCase().includes('quiet')) {
-      score -= 0.2;
+    if (plan.includes('avoid people') || plan.includes('alone')) {
+      score -= 0.3;
     }
     
     // Recent conversation history affects sociability
@@ -522,15 +541,42 @@ export class StaticAgentSimulation {
 
   private getExplorationScore(agent: Agent): number {
     let score = 0.5;
-    if (agent.identity?.toLowerCase().includes('curious') || 
-        agent.identity?.toLowerCase().includes('explorer') ||
-        agent.identity?.toLowerCase().includes('adventurous')) {
-      score += 0.4;
+    const identity = agent.identity?.toLowerCase() || '';
+    const plan = agent.plan?.toLowerCase() || '';
+    
+    // Analyze personality traits for exploration tendency
+    if (identity.includes('curious') || identity.includes('explorer') || 
+        identity.includes('traveling through the galaxy') || identity.includes('space adventure')) {
+      score += 0.4; // Lucky-like characters love exploration
     }
-    if (agent.identity?.toLowerCase().includes('homebody') || 
-        agent.identity?.toLowerCase().includes('cautious')) {
+    if (identity.includes('gardening by himself') || identity.includes('spends most of his time')) {
+      score -= 0.3; // Bob-like characters prefer routine locations
+    }
+    if (identity.includes('take advantage') || identity.includes('trick people')) {
+      score += 0.2; // Stella-like characters explore to find new targets
+    }
+    
+    // Consider current goals and energy
+    if (plan.includes('adventure') || plan.includes('explore')) {
+      score += 0.3;
+    }
+    if (plan.includes('avoid') || plan.includes('alone')) {
       score -= 0.2;
     }
+    
+    // Consider current goals from the agent's goal list
+    if (agent.goals) {
+      for (const goal of agent.goals) {
+        const goalLower = goal.toLowerCase();
+        if (goalLower.includes('explore') || goalLower.includes('travel') || goalLower.includes('adventure')) {
+          score += 0.2;
+        }
+        if (goalLower.includes('stay') || goalLower.includes('avoid') || goalLower.includes('garden')) {
+          score -= 0.1;
+        }
+      }
+    }
+    
     return Math.max(0, Math.min(1, score));
   }
 
@@ -582,6 +628,77 @@ export class StaticAgentSimulation {
       memory.includes('conversation') && 
       now - (agent.lastMessageTime || 0) < 300000 // Last 5 minutes
     ).length || 0;
+  }
+
+  private getGoalAlignmentBonus(agent: Agent, actionType: string): number {
+    if (!agent.goals || agent.goals.length === 0) return 0;
+    
+    let bonus = 0;
+    for (const goal of agent.goals.slice(0, 3)) { // Check top 3 goals
+      const goalLower = goal.toLowerCase();
+      
+      switch (actionType) {
+        case 'socialize':
+          if (goalLower.includes('talk') || goalLower.includes('gossip') || 
+              goalLower.includes('share') || goalLower.includes('tell people') ||
+              goalLower.includes('interact')) {
+            bonus += 0.2;
+          }
+          break;
+        case 'explore':
+          if (goalLower.includes('explore') || goalLower.includes('travel') || 
+              goalLower.includes('adventure') || goalLower.includes('discover')) {
+            bonus += 0.2;
+          }
+          break;
+        case 'return_home':
+          if (goalLower.includes('garden') || goalLower.includes('plants') ||
+              goalLower.includes('alone') || goalLower.includes('avoid')) {
+            bonus += 0.2;
+          }
+          break;
+      }
+    }
+    
+    return bonus;
+  }
+
+  private selectBestSocialTarget(agent: Agent, availableAgents: Agent[]): Agent {
+    if (availableAgents.length === 1) return availableAgents[0];
+    
+    // Score potential targets based on agent's personality and goals
+    const scores = availableAgents.map(target => {
+      let score = 1.0; // Base score
+      
+      const agentIdentity = agent.identity?.toLowerCase() || '';
+      const targetIdentity = target.identity?.toLowerCase() || '';
+      
+      // Stella-like characters prefer trusting/naive targets
+      if (agentIdentity.includes('trick people') || agentIdentity.includes('charming')) {
+        if (targetIdentity.includes('patient') || targetIdentity.includes('happy')) {
+          score += 0.5;
+        }
+      }
+      
+      // Lucky-like characters prefer anyone who will listen to stories
+      if (agentIdentity.includes('excited to tell people') || agentIdentity.includes('space adventure')) {
+        score += 0.3; // Lucky talks to anyone
+      }
+      
+      // Bob-like characters prefer quick conversations
+      if (agentIdentity.includes('get out of the conversation')) {
+        if (targetIdentity.includes('quiet') || targetIdentity.includes('brief')) {
+          score += 0.2;
+        }
+      }
+      
+      return { agent: target, score };
+    });
+    
+    // Select the highest scored target
+    return scores.reduce((best, current) => 
+      current.score > best.score ? current : best
+    ).agent;
   }
 
   private selectDecisionWithRandomness(decisions: DecisionOption[]): DecisionOption {
