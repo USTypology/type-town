@@ -90,16 +90,26 @@ class ClientLLMService {
           return this.initialize('Xenova/distilgpt2');
         }
 
-        // Set execution providers for ONNX Runtime
+        // Set execution providers for ONNX Runtime with better error handling
         try {
           const { env } = await import('@xenova/transformers');
           if (env.backends?.onnx) {
-            // Set WebGPU as the preferred execution provider
-            (env.backends.onnx as any).executionProviders = ['webgpu', 'wasm'];
-            console.log('Set execution providers: WebGPU (primary), WASM (fallback)');
+            // Set WebGPU as the preferred execution provider with CPU as final fallback
+            (env.backends.onnx as any).executionProviders = ['webgpu', 'wasm', 'cpu'];
+            console.log('Set execution providers: WebGPU (primary), WASM (fallback), CPU (final)');
+            
+            // Add execution provider error handling
+            if (env.backends.onnx.webgpu) {
+              try {
+                (env.backends.onnx.webgpu as any).contextTimeoutMs = 10000; // 10 second timeout
+              } catch {
+                // Ignore if property doesn't exist
+              }
+            }
           }
         } catch (epError) {
           console.warn('Could not set execution providers:', epError);
+          // Continue without WebGPU if configuration fails
         }
       } else {
         // Use WASM/CPU fallback
@@ -141,10 +151,35 @@ class ClientLLMService {
         console.log('Configuring pipeline for WASM backend');
       }
 
-      this.textGenerator = await pipeline('text-generation', targetModel, pipelineOptions) as TextGenerationPipeline;
-
-      this.currentModel = targetModel;
-      console.log(`Successfully loaded ${modelConfig?.name || targetModel}`);
+      try {
+        this.textGenerator = await pipeline('text-generation', targetModel, pipelineOptions) as TextGenerationPipeline;
+        this.currentModel = targetModel;
+        console.log(`Successfully loaded ${modelConfig?.name || targetModel}`);
+      } catch (pipelineError) {
+        console.warn('Pipeline creation failed, attempting fallback:', pipelineError);
+        
+        // If WebGPU pipeline fails, try WASM fallback
+        if (pipelineOptions.device === 'webgpu') {
+          console.log('WebGPU pipeline failed, falling back to WASM...');
+          const fallbackOptions = {
+            ...pipelineOptions,
+            device: 'wasm',
+            quantized: true, // Use quantization for WASM fallback
+          };
+          delete fallbackOptions.dtype; // Remove WebGPU-specific options
+          
+          try {
+            this.textGenerator = await pipeline('text-generation', targetModel, fallbackOptions) as TextGenerationPipeline;
+            this.currentModel = targetModel;
+            console.log(`Successfully loaded ${modelConfig?.name || targetModel} with WASM fallback`);
+          } catch (fallbackError) {
+            console.error('WASM fallback also failed:', fallbackError);
+            throw fallbackError;
+          }
+        } else {
+          throw pipelineError;
+        }
+      }
     } catch (error) {
       console.error('Failed to initialize client-side LLM:', error);
       
