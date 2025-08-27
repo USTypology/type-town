@@ -441,13 +441,15 @@ export class BackendDetector {
     return sortedResults[0].backend;
   }
 
-  // Get detailed WebGPU diagnostics
+  // Get detailed WebGPU diagnostics with memory pressure detection
   async getWebGPUDiagnostics(): Promise<{
     available: boolean;
     adapter?: any;
     device?: any;
     features?: string[];
     limits?: any;
+    memoryInfo?: any;
+    suitableForLargeModels?: boolean;
     error?: string;
   }> {
     try {
@@ -456,7 +458,8 @@ export class BackendDetector {
       }
 
       const adapter = await (navigator as any).gpu.requestAdapter({
-        powerPreference: 'high-performance'
+        powerPreference: 'high-performance',
+        forceFallbackAdapter: false // Prefer dedicated GPU for large models
       });
 
       if (!adapter) {
@@ -464,6 +467,10 @@ export class BackendDetector {
       }
 
       const device = await adapter.requestDevice();
+      
+      // Check memory availability for large models
+      const memoryInfo = await this.checkWebGPUMemory(device, adapter);
+      const suitableForLargeModels = this.assessLargeModelCompatibility(adapter, memoryInfo);
       
       return {
         available: true,
@@ -476,13 +483,76 @@ export class BackendDetector {
         features: Array.from(adapter.features || []),
         limits: adapter.limits ? Object.fromEntries(
           Object.entries(adapter.limits).map(([key, value]) => [key, value])
-        ) : {}
+        ) : {},
+        memoryInfo,
+        suitableForLargeModels
       };
     } catch (error) {
       return {
         available: false,
         error: error instanceof Error ? error.message : 'Unknown error'
       };
+    }
+  }
+
+  // Check WebGPU memory status for large model compatibility
+  private async checkWebGPUMemory(device: any, adapter: any): Promise<any> {
+    try {
+      // Get basic memory information
+      const memoryInfo: any = {
+        available: true,
+        estimatedMemory: 'Unknown'
+      };
+
+      // Check available memory through various methods
+      if ('memory' in (navigator as any)) {
+        try {
+          const memory = await (navigator as any).memory?.getUserAgentSpecificMemoryInfo?.();
+          if (memory) {
+            memoryInfo.systemMemory = memory;
+          }
+        } catch {
+          // Memory API not available or not allowed
+        }
+      }
+
+      // Estimate GPU memory based on adapter limits
+      if (adapter.limits) {
+        const maxBufferSize = adapter.limits.maxBufferSize || 0;
+        const maxStorageBufferBindingSize = adapter.limits.maxStorageBufferBindingSize || 0;
+        
+        // Conservative estimate based on buffer limits
+        const estimatedGPUMemory = Math.min(maxBufferSize, maxStorageBufferBindingSize) / (1024 * 1024); // MB
+        memoryInfo.estimatedGPUMemoryMB = estimatedGPUMemory;
+      }
+
+      return memoryInfo;
+    } catch (error) {
+      return { available: false, error: error instanceof Error ? error.message : 'Unknown' };
+    }
+  }
+
+  // Assess if the WebGPU setup is suitable for large models like Llama 3B
+  private assessLargeModelCompatibility(adapter: any, memoryInfo: any): boolean {
+    try {
+      // Check if this is likely a dedicated GPU (not integrated)
+      const adapterInfo = adapter.info;
+      const vendor = (adapterInfo?.vendor || '').toLowerCase();
+      const description = (adapterInfo?.description || '').toLowerCase();
+      
+      // Prefer discrete/dedicated GPUs for large models
+      const isDedicatedGPU = 
+        description.includes('discrete') ||
+        description.includes('dedicated') ||
+        (!description.includes('integrated') && 
+         (vendor.includes('nvidia') || vendor.includes('amd')));
+
+      // Check memory limits - need at least 2GB buffer size for Llama 3B
+      const hasAdequateMemory = adapter.limits?.maxBufferSize >= (2 * 1024 * 1024 * 1024); // 2GB
+
+      return isDedicatedGPU && hasAdequateMemory;
+    } catch {
+      return false; // Conservative fallback
     }
   }
 
@@ -542,15 +612,24 @@ export class BackendDetector {
           if (ort.env) {
             // Configure ONNX Runtime environment with better error handling
             try {
+              // Suppress ONNX Runtime warnings about unused initializers (common for large models)
+              ort.env.logLevel = 'error'; // Only show errors, suppress warnings like unused initializers
+              ort.env.logVerbosityLevel = 0; // Minimize verbose logging
+              
               ort.env.wasm.numThreads = Math.min(navigator.hardwareConcurrency || 4, 4);
               ort.env.wasm.simd = true;
               
-              // Set WebGPU configuration with validation
+              // Set WebGPU configuration with validation and optimizations for large models
               if (ort.env.webgpu) {
                 // Add timeout and validation for WebGPU context creation
                 ort.env.webgpu.validateInputContent = false; // Improve performance
-                ort.env.webgpu.contextTimeoutMs = 10000; // 10 second timeout
-                console.log('Configured ONNX Runtime WebGPU execution provider with timeout');
+                ort.env.webgpu.contextTimeoutMs = 15000; // Increased timeout for large models
+                
+                // Memory optimization settings for large models like Llama 3B
+                ort.env.webgpu.powerPreference = 'high-performance';
+                ort.env.webgpu.forceFallbackAdapter = false; // Use dedicated GPU when available
+                
+                console.log('Configured ONNX Runtime WebGPU execution provider with large model optimizations');
               }
             } catch (ortError) {
               console.warn('ONNX Runtime configuration partially failed:', ortError);

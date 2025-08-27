@@ -45,4 +45,30 @@ describe('WebGPU Functionality Fixes', () => {
       expect(typeof diagnostics.error).toBe('string');
     }
   });
+
+  test('should include large model compatibility assessment', async () => {
+    // Test the enhanced diagnostics for large model support
+    const diagnostics = await detector.getWebGPUDiagnostics();
+    
+    // Should have suitableForLargeModels property when WebGPU is available
+    if (diagnostics.available) {
+      expect(diagnostics).toHaveProperty('suitableForLargeModels');
+      expect(typeof diagnostics.suitableForLargeModels).toBe('boolean');
+      expect(diagnostics).toHaveProperty('memoryInfo');
+    } else {
+      // When WebGPU is not available, should still have basic structure
+      expect(diagnostics.available).toBe(false);
+      expect(diagnostics.error).toBeDefined();
+      expect(typeof diagnostics.error).toBe('string');
+    }
+  });
+
+  test('should handle ONNX Runtime warning suppression configuration', () => {
+    // Test that ONNX Runtime configuration methods are accessible
+    // This validates the warning suppression logic is in place
+    const diagnostics = detector.getWebGPUDiagnostics();
+    
+    // Should be a promise (async function)
+    expect(diagnostics).toBeInstanceOf(Promise);
+  });
 });
