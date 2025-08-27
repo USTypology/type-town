@@ -36,7 +36,9 @@ export const SUPPORTED_MODELS = {
     requiresWebGPU: false,
     contextLength: 1024,
     description: 'Fast, lightweight model suitable for all devices',
-    type: 'conversational'
+    type: 'conversational',
+    quantized: true,
+    simdOptimized: true
   },
   'onnx-community/Llama-3.2-1B-Instruct': {
     name: 'Llama 3.2 1B Instruct',
@@ -44,7 +46,9 @@ export const SUPPORTED_MODELS = {
     requiresWebGPU: true,
     contextLength: 2048,
     description: 'High-quality instruction-following model (WebGPU required)',
-    type: 'instruct'
+    type: 'instruct',
+    quantized: false,
+    simdOptimized: true
   },
   'onnx-community/Llama-3.2-3B-Instruct': {
     name: 'Llama 3.2 3B Instruct',
@@ -52,7 +56,9 @@ export const SUPPORTED_MODELS = {
     requiresWebGPU: true,
     contextLength: 2048,
     description: 'Advanced instruction model with superior reasoning (WebGPU + 8GB+ RAM)',
-    type: 'instruct'
+    type: 'instruct',
+    quantized: false,
+    simdOptimized: true
   },
   'Xenova/LaMini-GPT-774M': {
     name: 'LaMini-GPT 774M',
@@ -60,7 +66,9 @@ export const SUPPORTED_MODELS = {
     requiresWebGPU: false,
     contextLength: 1024,
     description: 'Medium-sized model with good performance balance',
-    type: 'conversational'
+    type: 'conversational',
+    quantized: true,
+    simdOptimized: true
   },
   'Xenova/gpt2': {
     name: 'GPT-2',
@@ -68,7 +76,29 @@ export const SUPPORTED_MODELS = {
     requiresWebGPU: false,
     contextLength: 1024,
     description: 'Classic GPT-2 model, reliable baseline',
-    type: 'conversational'
+    type: 'conversational',
+    quantized: true,
+    simdOptimized: true
+  },
+  'webml-community/qwen3-webgpu': {
+    name: 'Qwen3 WebGPU',
+    size: '2.8GB',
+    requiresWebGPU: true,
+    contextLength: 4096,
+    description: 'Advanced Qwen3 model optimized for WebGPU inference',
+    type: 'instruct',
+    quantized: false,
+    simdOptimized: true
+  },
+  'webml-community/deepseek-r1-webgpu': {
+    name: 'DeepSeek R1 WebGPU',
+    size: '3.2GB',
+    requiresWebGPU: true,
+    contextLength: 4096,
+    description: 'High-performance DeepSeek R1 model with WebGPU acceleration',
+    type: 'instruct',
+    quantized: false,
+    simdOptimized: true
   }
 } as const;
 
@@ -103,6 +133,18 @@ export const MODEL_REQUIREMENTS = {
     minStorage: 128, // MB
     requiresWebGPU: false,
     preferredCores: 1
+  },
+  'webml-community/qwen3-webgpu': {
+    minRAM: 6144, // MB
+    minStorage: 3072, // MB
+    requiresWebGPU: true,
+    preferredCores: 6
+  },
+  'webml-community/deepseek-r1-webgpu': {
+    minRAM: 6144, // MB
+    minStorage: 3584, // MB
+    requiresWebGPU: true,
+    preferredCores: 6
   }
 } as const;
 

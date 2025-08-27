@@ -2,57 +2,14 @@ import React, { useState, useEffect } from 'react';
 import { ModelConfig } from '../lib/clientLLM';
 import { clientLLMWorkerService } from '../lib/clientLLMWorkerService';
 import { backendDetectionWorkerService } from '../lib/backendDetectionWorkerService';
+import { SUPPORTED_MODELS } from '../lib/llmConfig';
 
 interface ModelSelectorProps {
   className?: string;
 }
 
-// Model configuration (moved from clientLLM since we need it here)
-interface LocalModelConfig {
-  name: string;
-  size: string;
-  requiresWebGPU: boolean;
-  contextLength: number;
-  description: string;
-}
-
-const supportedModels: { [key: string]: LocalModelConfig } = {
-  'Xenova/distilgpt2': {
-    name: 'DistilGPT-2',
-    size: '82MB',
-    requiresWebGPU: false,
-    contextLength: 1024,
-    description: 'Fast, lightweight model suitable for all devices'
-  },
-  'onnx-community/Llama-3.2-1B-Instruct': {
-    name: 'Llama 3.2 1B Instruct',
-    size: '637MB',
-    requiresWebGPU: true,
-    contextLength: 2048,
-    description: 'High-quality instruction-following model (WebGPU required)'
-  },
-  'onnx-community/Llama-3.2-3B-Instruct': {
-    name: 'Llama 3.2 3B Instruct',
-    size: '1.9GB',
-    requiresWebGPU: true,
-    contextLength: 2048,
-    description: 'Advanced instruction model with superior reasoning (WebGPU + 8GB+ RAM)'
-  },
-  'Xenova/LaMini-GPT-774M': {
-    name: 'LaMini-GPT 774M',
-    size: '310MB',
-    requiresWebGPU: false,
-    contextLength: 1024,
-    description: 'Medium-sized model with good performance balance'
-  },
-  'Xenova/gpt2': {
-    name: 'GPT-2',
-    size: '124MB',
-    requiresWebGPU: false,
-    contextLength: 1024,
-    description: 'Classic GPT-2 model, reliable baseline'
-  }
-};
+// Use centralized model configuration
+const supportedModels = SUPPORTED_MODELS;
 
 export default function ModelSelector({ className = '' }: ModelSelectorProps) {
   const [currentModel, setCurrentModel] = useState<string>('Xenova/distilgpt2');
@@ -95,7 +52,7 @@ export default function ModelSelector({ className = '' }: ModelSelectorProps) {
     
     try {
       // Check if model is compatible before switching
-      const config = supportedModels[modelName];
+      const config = supportedModels[modelName as keyof typeof SUPPORTED_MODELS];
       if (config?.requiresWebGPU && !capabilities?.webgpu) {
         throw new Error(`${config.name} requires WebGPU but it's not available on this device`);
       }
@@ -121,14 +78,14 @@ export default function ModelSelector({ className = '' }: ModelSelectorProps) {
     }
   };
 
-  const getModelStatusIcon = (modelKey: string, config: LocalModelConfig) => {
+  const getModelStatusIcon = (modelKey: string, config: any) => {
     if (modelKey === currentModel) return '✅';
     if (modelKey === recommendedModel) return '⭐';
     if (config.requiresWebGPU && !capabilities?.webgpu) return '❌';
     return '⚪';
   };
 
-  const getModelStatusText = (modelKey: string, config: LocalModelConfig) => {
+  const getModelStatusText = (modelKey: string, config: any) => {
     if (modelKey === currentModel) return 'Current';
     if (modelKey === recommendedModel) return 'Recommended';
     if (config.requiresWebGPU && !capabilities?.webgpu) return 'WebGPU Required';
@@ -150,10 +107,10 @@ export default function ModelSelector({ className = '' }: ModelSelectorProps) {
       <div className="mb-3">
         <div className="text-sm opacity-80 mb-1">Current Model:</div>
         <div className="text-green-400 font-bold">
-          {supportedModels[currentModel]?.name || currentModel}
+          {supportedModels[currentModel as keyof typeof SUPPORTED_MODELS]?.name || currentModel}
         </div>
         <div className="text-xs text-gray-400">
-          {supportedModels[currentModel]?.description}
+          {supportedModels[currentModel as keyof typeof SUPPORTED_MODELS]?.description}
         </div>
         
         {/* Loading indicator */}
@@ -236,7 +193,7 @@ export default function ModelSelector({ className = '' }: ModelSelectorProps) {
               </div>
               <p className="text-sm text-yellow-100 mb-2">
                 Based on your device capabilities, we recommend switching to{' '}
-                <strong>{supportedModels[recommendedModel]?.name}</strong> for optimal performance.
+                <strong>{supportedModels[recommendedModel as keyof typeof SUPPORTED_MODELS]?.name}</strong> for optimal performance.
               </p>
               <button
                 onClick={() => handleModelChange(recommendedModel)}
