@@ -1,5 +1,6 @@
 // Web Worker for Backend Detection and WebGPU Benchmarking to prevent UI blocking
 import { BackendCapabilities, FlopsResult, BenchmarkResults } from '../lib/backendDetection';
+import { suppressWebGPUWarnings } from '../lib/warningSuppressionUtils';
 
 // Worker message types
 interface WorkerRequest {
@@ -22,29 +23,6 @@ let cachedCapabilities: BackendCapabilities | null = null;
 // Global WebGPU detection cache to prevent repeated adapter requests
 let webGPUDetectionCache: { result: boolean; timestamp: number; } | null = null;
 const WEBGPU_CACHE_DURATION = 5 * 60 * 1000; // 5 minutes cache duration
-
-// Function to suppress WebGPU experimental warnings temporarily
-function suppressWebGPUWarnings<T>(fn: () => Promise<T>): Promise<T> {
-  // Store original console.warn
-  const originalWarn = console.warn;
-  
-  // Create filtered console.warn that suppresses WebGPU experimental warnings
-  console.warn = (...args: any[]) => {
-    const message = args.join(' ');
-    if (message.includes('WebGPU is experimental') || 
-        message.includes('Failed to create WebGPU Context Provider')) {
-      // Suppress these specific warnings
-      return;
-    }
-    // Allow other warnings through
-    originalWarn.apply(console, args);
-  };
-  
-  // Execute function and restore console.warn
-  return fn().finally(() => {
-    console.warn = originalWarn;
-  });
-}
 
 // Detect backend capabilities in worker
 async function detectCapabilities(): Promise<BackendCapabilities> {

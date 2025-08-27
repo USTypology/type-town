@@ -1,5 +1,6 @@
 // Web Worker for Client-side LLM processing to prevent blocking the main thread
 import { pipeline, env } from '@xenova/transformers';
+import { suppressWebGPUWarnings } from '../lib/warningSuppressionUtils';
 
 // Configure transformers.js for web worker environment with optimizations
 env.allowLocalModels = false;
@@ -60,29 +61,6 @@ let simdSupported = false;
 // Global WebGPU detection cache to prevent repeated adapter requests
 let webGPUDetectionCache: { result: boolean; timestamp: number; } | null = null;
 const WEBGPU_CACHE_DURATION = 5 * 60 * 1000; // 5 minutes cache duration
-
-// Function to suppress WebGPU experimental warnings temporarily
-function suppressWebGPUWarnings<T>(fn: () => Promise<T>): Promise<T> {
-  // Store original console.warn
-  const originalWarn = console.warn;
-  
-  // Create filtered console.warn that suppresses WebGPU experimental warnings
-  console.warn = (...args: any[]) => {
-    const message = args.join(' ');
-    if (message.includes('WebGPU is experimental') || 
-        message.includes('Failed to create WebGPU Context Provider')) {
-      // Suppress these specific warnings
-      return;
-    }
-    // Allow other warnings through
-    originalWarn.apply(console, args);
-  };
-  
-  // Execute function and restore console.warn
-  return fn().finally(() => {
-    console.warn = originalWarn;
-  });
-}
 
 // Worker message types
 interface WorkerRequest {
@@ -190,23 +168,31 @@ async function configureEnvironment(modelName: string) {
       const ort = (self as any).ort;
       if (ort.env) {
         try {
-          // Suppress ONNX Runtime warnings about unused initializers
+          // Comprehensive warning suppression for ONNX Runtime
           ort.env.logLevel = 'error'; // Only show errors, suppress warnings
           ort.env.logVerbosityLevel = 0; // Minimize verbose logging
+          
+          // Additional ONNX Runtime warning suppressions
+          if (ort.env.webgl2) {
+            ort.env.webgl2.enableWarningCapture = false;
+          }
           
           // Configure for large model performance
           if (ort.env.webgpu && modelConfig.requiresWebGPU && webGPUSupported) {
             ort.env.webgpu.validateInputContent = false;
             ort.env.webgpu.contextTimeoutMs = 15000; // Extended timeout for large models
             ort.env.webgpu.powerPreference = 'high-performance';
+            ort.env.webgpu.forceFallbackAdapter = false; // Use dedicated GPU when available
+            ort.env.webgpu.enableDebugInfo = false; // Disable debug output
           }
           
           if (ort.env.wasm) {
             ort.env.wasm.numThreads = Math.min(navigator.hardwareConcurrency || 4, 8);
             ort.env.wasm.simd = simdSupported;
+            ort.env.wasm.enableExperimentalFeatures = false; // Disable experimental warnings
           }
           
-          console.log('[Worker] ONNX Runtime configured with warning suppression');
+          console.log('[Worker] ONNX Runtime configured with comprehensive warning suppression');
         } catch (ortError) {
           console.log('[Worker] ONNX Runtime direct configuration not available:', ortError);
         }
