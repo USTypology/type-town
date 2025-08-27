@@ -1,4 +1,4 @@
-# Type Town 🏠💻💌
+# Typology World 🏠💻💌
 
 [Live Demo](https://ustypology.github.io)
 

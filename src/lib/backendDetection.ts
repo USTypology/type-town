@@ -356,9 +356,11 @@ export class BackendDetector {
       const multiply = wasmModule.instance.exports.multiply as Function;
       
       // Perform intensive floating point operations
+
       let result = 1.0;
       for (let i = 0; i < 1000000; i++) {
-        result = multiply(result, 1.0001);
+        result = result * 1.0001;
+        if (result > 1000) result = 1.0; // Prevent overflow
       }
       
       const duration = performance.now() - start;
@@ -391,6 +393,7 @@ export class BackendDetector {
       if (!isFinite(result) || Math.abs(result) > 1e10) {
         result = 1.0;
       }
+
     }
     
     const duration = performance.now() - start;
