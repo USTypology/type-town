@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useState, useRef } from 'react';
 import volumeImg from '../../../assets/volume.svg';
 import Button from './Button';
 
@@ -6,10 +6,23 @@ export default function StrudelMusicButton() {
   const [isPlaying, setPlaying] = useState(false);
   const [audioContext, setAudioContext] = useState<AudioContext | null>(null);
   const [isReady, setIsReady] = useState(true);
+  const scheduledNodesRef = useRef<AudioNode[]>([]);
 
   // Mozart x Hip-Hop composition patterns translated to Web Audio API
   const playMozartHipHop = useCallback(() => {
-    if (!audioContext) return;
+    if (!audioContext || !isPlaying) return;
+
+    // Clear any previously scheduled nodes
+    scheduledNodesRef.current.forEach(node => {
+      try {
+        if (node instanceof OscillatorNode) {
+          node.stop();
+        }
+      } catch (e) {
+        // Node might already be stopped
+      }
+    });
+    scheduledNodesRef.current = [];
 
     const tempo = 92; // BPM from original
     const cycleLength = 4; // 4 beats per cycle
@@ -82,6 +95,7 @@ export default function StrudelMusicButton() {
             const startTime = currentTime + (i * cycleDuration / 8);
             hihat.start(startTime);
             hihat.stop(startTime + 0.05);
+            scheduledNodesRef.current.push(hihat);
           }
           
           // Kick drums and snares
@@ -105,6 +119,7 @@ export default function StrudelMusicButton() {
             
             kick.start(currentTime + time * beatDuration);
             kick.stop(currentTime + time * beatDuration + 0.1);
+            scheduledNodesRef.current.push(kick);
           });
           
           snareTimes.forEach(time => {
@@ -124,6 +139,7 @@ export default function StrudelMusicButton() {
             
             snare.start(currentTime + time * beatDuration);
             snare.stop(currentTime + time * beatDuration + 0.1);
+            scheduledNodesRef.current.push(snare);
           });
         };
 
@@ -147,6 +163,7 @@ export default function StrudelMusicButton() {
             
             bass.start(currentTime + i * beatDuration);
             bass.stop(currentTime + (i + 1) * beatDuration);
+            scheduledNodesRef.current.push(bass);
           });
         };
 
@@ -169,6 +186,7 @@ export default function StrudelMusicButton() {
             
             melody.start(noteStart);
             melody.stop(noteStart + noteLength);
+            scheduledNodesRef.current.push(melody);
             
             // Add echo effect for drop section
             if (sectionType === 'drop') {
@@ -181,6 +199,7 @@ export default function StrudelMusicButton() {
               echoGain.gain.value = 0.06;
               echo.start(noteStart + cycleDuration / 8);
               echo.stop(noteStart + cycleDuration / 8 + noteLength * 0.6);
+              scheduledNodesRef.current.push(echo);
             }
           });
         };
@@ -203,6 +222,7 @@ export default function StrudelMusicButton() {
             
             osc.start(currentTime);
             osc.stop(currentTime + cycleDuration);
+            scheduledNodesRef.current.push(osc);
           });
         };
 
@@ -229,8 +249,11 @@ export default function StrudelMusicButton() {
         cycleCount = 0;
       }
 
+      // Use audioContext.currentTime + cycleDuration for precise timing instead of setTimeout
       if (isPlaying) {
-        setTimeout(() => playArrangement(), cycleDuration * 1000);
+        const nextScheduleTime = audioContext.currentTime + cycleDuration;
+        const timeout = (nextScheduleTime - audioContext.currentTime) * 1000;
+        setTimeout(() => playArrangement(), Math.max(0, timeout));
       }
     };
 
@@ -242,16 +265,27 @@ export default function StrudelMusicButton() {
       // Initialize audio context on first interaction
       const ctx = new (window.AudioContext || (window as any).webkitAudioContext)();
       setAudioContext(ctx);
-      setPlaying(true);
       
       // Resume audio context if suspended
       if (ctx.state === 'suspended') {
         await ctx.resume();
       }
+      // Don't set playing to true here - let the useEffect handle it
       return;
     }
 
     if (isPlaying) {
+      // Stop all scheduled audio nodes
+      scheduledNodesRef.current.forEach(node => {
+        try {
+          if (node instanceof OscillatorNode) {
+            node.stop();
+          }
+        } catch (e) {
+          // Node might already be stopped
+        }
+      });
+      scheduledNodesRef.current = [];
       setPlaying(false);
     } else {
       if (audioContext.state === 'suspended') {
@@ -261,7 +295,14 @@ export default function StrudelMusicButton() {
     }
   }, [audioContext, isPlaying]);
 
-  // Start playing when isPlaying becomes true
+  // Start playing when audioContext is first created
+  useEffect(() => {
+    if (audioContext && !isPlaying) {
+      setPlaying(true);
+    }
+  }, [audioContext]);
+
+  // Start playing when isPlaying becomes true (but avoid double-trigger on initial context creation)
   useEffect(() => {
     if (isPlaying && audioContext) {
       playMozartHipHop();

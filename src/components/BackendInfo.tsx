@@ -234,9 +234,14 @@ export default function BackendInfo({ className = '' }: BackendInfoProps) {
                       )}
                     </div>
                   ) : (
-                    <div className="bg-red-800 bg-opacity-30 border border-red-600 p-2 rounded">
-                      <div className="text-red-400 text-sm">
-                        {webgpuDiagnostics.error || 'WebGPU not available'}
+                    <div className="bg-amber-800 bg-opacity-30 border border-amber-600 p-2 rounded">
+                      <div className="text-amber-400 text-sm">
+                        <div className="font-medium">WebGPU Not Available</div>
+                        <div className="text-xs text-gray-400 mt-1">
+                          {webgpuDiagnostics.error === 'No WebGPU adapter available' 
+                            ? 'Your device or browser doesn\'t support WebGPU. This is normal for most devices. The application will use optimized fallbacks instead.'
+                            : webgpuDiagnostics.error || 'WebGPU is not supported in this browser. Using WASM/JavaScript fallback.'}
+                        </div>
                       </div>
                     </div>
                   )}
