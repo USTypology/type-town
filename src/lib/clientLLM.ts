@@ -1,5 +1,5 @@
 import { pipeline, TextGenerationPipeline, env } from '@xenova/transformers';
-import { LLM_CONFIG } from './llmConfig';
+import { LLM_CONFIG, SUPPORTED_MODELS } from './llmConfig';
 import { backendDetector } from './backendDetection';
 
 // Model configuration interface
@@ -9,6 +9,9 @@ export interface ModelConfig {
   requiresWebGPU: boolean;
   contextLength: number;
   description: string;
+  type: 'instruct' | 'conversational';
+  quantized: boolean;
+  simdOptimized: boolean;
 }
 
 // Enhanced client-side LLM service with WebGPU support for larger models
@@ -16,50 +19,10 @@ class ClientLLMService {
   private textGenerator: TextGenerationPipeline | null = null;
   private isLoading = false;
   private currentModel: string = LLM_CONFIG.CLIENT_MODEL;
-  private supportedModels: { [key: string]: ModelConfig } = {};
+  private supportedModels = SUPPORTED_MODELS;
 
   constructor() {
-    this.initializeSupportedModels();
-  }
-
-  private initializeSupportedModels() {
-    this.supportedModels = {
-      'Xenova/distilgpt2': {
-        name: 'DistilGPT-2',
-        size: '82MB',
-        requiresWebGPU: false,
-        contextLength: 1024,
-        description: 'Fast, lightweight model suitable for all devices'
-      },
-      'onnx-community/Llama-3.2-1B-Instruct': {
-        name: 'Llama 3.2 1B Instruct',
-        size: '637MB',
-        requiresWebGPU: true,
-        contextLength: 2048,
-        description: 'High-quality instruction-following model (WebGPU required)'
-      },
-      'onnx-community/Llama-3.2-3B-Instruct': {
-        name: 'Llama 3.2 3B Instruct',
-        size: '1.9GB',
-        requiresWebGPU: true,
-        contextLength: 2048,
-        description: 'Advanced instruction model with superior reasoning (WebGPU + 8GB+ RAM)'
-      },
-      'Xenova/LaMini-GPT-774M': {
-        name: 'LaMini-GPT 774M',
-        size: '310MB',
-        requiresWebGPU: false,
-        contextLength: 1024,
-        description: 'Medium-sized model with good performance balance'
-      },
-      'Xenova/gpt2': {
-        name: 'GPT-2',
-        size: '124MB',
-        requiresWebGPU: false,
-        contextLength: 1024,
-        description: 'Classic GPT-2 model, reliable baseline'
-      }
-    };
+    // Models are now loaded from centralized config
   }
 
   async initialize(modelName?: string): Promise<void> {
@@ -72,7 +35,7 @@ class ClientLLMService {
     try {
       // Check backend capabilities for model compatibility
       const capabilities = await backendDetector.detectCapabilities();
-      const modelConfig = this.supportedModels[targetModel];
+      const modelConfig = this.supportedModels[targetModel as keyof typeof SUPPORTED_MODELS];
       
       // Enhanced WebGPU diagnostics for large model compatibility
       if (modelConfig?.requiresWebGPU) {
@@ -223,13 +186,23 @@ class ClientLLMService {
     }
 
     try {
-      const modelConfig = this.supportedModels[this.currentModel];
-      const isInstructModel = this.currentModel.includes('Instruct');
+      const modelConfig = this.supportedModels[this.currentModel as keyof typeof SUPPORTED_MODELS];
+      const isInstructModel = this.currentModel.includes('Instruct') || 
+                             modelConfig?.type === 'instruct';
       
       // Format prompt appropriately for instruction models
-      const formattedPrompt = isInstructModel ? 
-        `<|start_header_id|>user<|end_header_id|>\n\n${prompt}<|eot_id|><|start_header_id|>assistant<|end_header_id|>\n\n` : 
-        prompt;
+      let formattedPrompt = prompt;
+      
+      if (isInstructModel) {
+        // Handle different instruction model formats
+        if (this.currentModel.includes('qwen3') || this.currentModel.includes('deepseek')) {
+          // Use a more generic instruction format for WebML community models
+          formattedPrompt = `<|im_start|>user\n${prompt}<|im_end|>\n<|im_start|>assistant\n`;
+        } else {
+          // Use Llama format for Llama models
+          formattedPrompt = `<|start_header_id|>user<|end_header_id|>\n\n${prompt}<|eot_id|><|start_header_id|>assistant<|end_header_id|>\n\n`;
+        }
+      }
 
       const response = await this.textGenerator(formattedPrompt, {
         max_new_tokens: maxTokens,
@@ -246,7 +219,11 @@ class ClientLLMService {
       
       // Clean up instruction model responses
       if (isInstructModel) {
-        generatedText = generatedText.split('<|eot_id|>')[0].trim();
+        if (this.currentModel.includes('qwen3') || this.currentModel.includes('deepseek')) {
+          generatedText = generatedText.split('<|im_end|>')[0].trim();
+        } else {
+          generatedText = generatedText.split('<|eot_id|>')[0].trim();
+        }
       }
       
       return generatedText;
@@ -333,15 +310,15 @@ class ClientLLMService {
   }
 
   getCurrentModelConfig(): ModelConfig | undefined {
-    return this.supportedModels[this.currentModel];
+    return this.supportedModels[this.currentModel as keyof typeof SUPPORTED_MODELS];
   }
 
-  getSupportedModels(): { [key: string]: ModelConfig } {
+  getSupportedModels(): typeof SUPPORTED_MODELS {
     return this.supportedModels;
   }
 
   async switchModel(modelName: string): Promise<void> {
-    if (!this.supportedModels[modelName]) {
+    if (!(modelName in this.supportedModels)) {
       throw new Error(`Unsupported model: ${modelName}`);
     }
 
@@ -389,7 +366,7 @@ class ClientLLMService {
   // Validate model compatibility before switching
   async validateModelCompatibility(modelName: string): Promise<{ compatible: boolean; reason?: string }> {
     const capabilities = await backendDetector.detectCapabilities();
-    const modelConfig = this.supportedModels[modelName];
+    const modelConfig = this.supportedModels[modelName as keyof typeof SUPPORTED_MODELS];
     
     if (!modelConfig) {
       return { compatible: false, reason: `Model ${modelName} is not supported` };

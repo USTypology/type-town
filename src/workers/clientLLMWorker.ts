@@ -1,54 +1,14 @@
 // Web Worker for Client-side LLM processing to prevent blocking the main thread
 import { pipeline, env } from '@xenova/transformers';
+import { suppressWebGPUWarnings } from '../lib/warningSuppressionUtils';
+import { SUPPORTED_MODELS } from '../lib/llmConfig';
 
 // Configure transformers.js for web worker environment with optimizations
 env.allowLocalModels = false;
 env.useBrowserCache = true;
 
-// Enhanced model configuration for WebGPU/SIMD support
-interface ModelConfig {
-  name: string;
-  size: string;
-  requiresWebGPU: boolean;
-  contextLength: number;
-  quantized: boolean;
-  simdOptimized: boolean;
-}
-
-const supportedModels: { [key: string]: ModelConfig } = {
-  'Xenova/distilgpt2': {
-    name: 'DistilGPT-2',
-    size: '82MB',
-    requiresWebGPU: false,
-    contextLength: 1024,
-    quantized: true,
-    simdOptimized: true
-  },
-  'onnx-community/Llama-3.2-1B-Instruct': {
-    name: 'Llama 3.2 1B Instruct',
-    size: '637MB',
-    requiresWebGPU: true,
-    contextLength: 2048,
-    quantized: false,
-    simdOptimized: true
-  },
-  'onnx-community/Llama-3.2-3B-Instruct': {
-    name: 'Llama 3.2 3B Instruct',
-    size: '1.9GB',
-    requiresWebGPU: true,
-    contextLength: 2048,
-    quantized: false,
-    simdOptimized: true
-  },
-  'Xenova/LaMini-GPT-774M': {
-    name: 'LaMini-GPT 774M',
-    size: '310MB',
-    requiresWebGPU: false,
-    contextLength: 1024,
-    quantized: true,
-    simdOptimized: true
-  }
-};
+// Use centralized model configuration
+const supportedModels = SUPPORTED_MODELS;
 
 let textGenerator: any = null;
 let isInitialized = false;
@@ -60,29 +20,6 @@ let simdSupported = false;
 // Global WebGPU detection cache to prevent repeated adapter requests
 let webGPUDetectionCache: { result: boolean; timestamp: number; } | null = null;
 const WEBGPU_CACHE_DURATION = 5 * 60 * 1000; // 5 minutes cache duration
-
-// Function to suppress WebGPU experimental warnings temporarily
-function suppressWebGPUWarnings<T>(fn: () => Promise<T>): Promise<T> {
-  // Store original console.warn
-  const originalWarn = console.warn;
-  
-  // Create filtered console.warn that suppresses WebGPU experimental warnings
-  console.warn = (...args: any[]) => {
-    const message = args.join(' ');
-    if (message.includes('WebGPU is experimental') || 
-        message.includes('Failed to create WebGPU Context Provider')) {
-      // Suppress these specific warnings
-      return;
-    }
-    // Allow other warnings through
-    originalWarn.apply(console, args);
-  };
-  
-  // Execute function and restore console.warn
-  return fn().finally(() => {
-    console.warn = originalWarn;
-  });
-}
 
 // Worker message types
 interface WorkerRequest {
@@ -179,7 +116,7 @@ async function testWebGPUSupport(): Promise<boolean> {
 
 // Configure transformers.js environment for optimal performance
 async function configureEnvironment(modelName: string) {
-  const modelConfig = supportedModels[modelName];
+  const modelConfig = supportedModels[modelName as keyof typeof SUPPORTED_MODELS];
   if (!modelConfig) {
     throw new Error(`Unsupported model: ${modelName}`);
   }
@@ -190,23 +127,31 @@ async function configureEnvironment(modelName: string) {
       const ort = (self as any).ort;
       if (ort.env) {
         try {
-          // Suppress ONNX Runtime warnings about unused initializers
+          // Comprehensive warning suppression for ONNX Runtime
           ort.env.logLevel = 'error'; // Only show errors, suppress warnings
           ort.env.logVerbosityLevel = 0; // Minimize verbose logging
+          
+          // Additional ONNX Runtime warning suppressions
+          if (ort.env.webgl2) {
+            ort.env.webgl2.enableWarningCapture = false;
+          }
           
           // Configure for large model performance
           if (ort.env.webgpu && modelConfig.requiresWebGPU && webGPUSupported) {
             ort.env.webgpu.validateInputContent = false;
             ort.env.webgpu.contextTimeoutMs = 15000; // Extended timeout for large models
             ort.env.webgpu.powerPreference = 'high-performance';
+            ort.env.webgpu.forceFallbackAdapter = false; // Use dedicated GPU when available
+            ort.env.webgpu.enableDebugInfo = false; // Disable debug output
           }
           
           if (ort.env.wasm) {
             ort.env.wasm.numThreads = Math.min(navigator.hardwareConcurrency || 4, 8);
             ort.env.wasm.simd = simdSupported;
+            ort.env.wasm.enableExperimentalFeatures = false; // Disable experimental warnings
           }
           
-          console.log('[Worker] ONNX Runtime configured with warning suppression');
+          console.log('[Worker] ONNX Runtime configured with comprehensive warning suppression');
         } catch (ortError) {
           console.log('[Worker] ONNX Runtime direct configuration not available:', ortError);
         }
@@ -297,7 +242,7 @@ async function initializeLLM(modelName: string = 'Xenova/distilgpt2'): Promise<v
     await detectCapabilities();
     await configureEnvironment(modelName);
     
-    const modelConfig = supportedModels[modelName];
+    const modelConfig = supportedModels[modelName as keyof typeof SUPPORTED_MODELS];
     console.log(`[Worker] Initializing ${modelConfig?.name || modelName}...`);
     
     // Check hardware compatibility
@@ -412,13 +357,23 @@ async function generateText(prompt: string, maxTokens: number = 50): Promise<str
   }
 
   try {
-    const modelConfig = supportedModels[currentModelName];
-    const isInstructModel = currentModelName.includes('Instruct');
+    const modelConfig = supportedModels[currentModelName as keyof typeof SUPPORTED_MODELS];
+    const isInstructModel = currentModelName.includes('Instruct') || 
+                           modelConfig?.type === 'instruct';
     
     // Format prompt appropriately for instruction models
-    const formattedPrompt = isInstructModel ? 
-      `<|start_header_id|>user<|end_header_id|>\n\n${prompt}<|eot_id|><|start_header_id|>assistant<|end_header_id|>\n\n` : 
-      prompt;
+    let formattedPrompt = prompt;
+    
+    if (isInstructModel) {
+      // Handle different instruction model formats
+      if (currentModelName.includes('qwen3') || currentModelName.includes('deepseek')) {
+        // Use a more generic instruction format for WebML community models
+        formattedPrompt = `<|im_start|>user\n${prompt}<|im_end|>\n<|im_start|>assistant\n`;
+      } else {
+        // Use Llama format for Llama models
+        formattedPrompt = `<|start_header_id|>user<|end_header_id|>\n\n${prompt}<|eot_id|><|start_header_id|>assistant<|end_header_id|>\n\n`;
+      }
+    }
 
     // Model-specific generation parameters
     const generationConfig: any = {
@@ -454,7 +409,11 @@ async function generateText(prompt: string, maxTokens: number = 50): Promise<str
     
     // Clean up instruction model responses
     if (isInstructModel) {
-      newText = newText.split('<|eot_id|>')[0].trim();
+      if (currentModelName.includes('qwen3') || currentModelName.includes('deepseek')) {
+        newText = newText.split('<|im_end|>')[0].trim();
+      } else {
+        newText = newText.split('<|eot_id|>')[0].trim();
+      }
     }
     
     // Remove potential repetition or incomplete sentences for better quality
@@ -495,7 +454,7 @@ function cleanGeneratedText(text: string): string {
 
 // Handle model switching
 async function switchModel(modelName: string): Promise<void> {
-  if (!supportedModels[modelName]) {
+  if (!(modelName in supportedModels)) {
     throw new Error(`Unsupported model: ${modelName}`);
   }
 

@@ -5,6 +5,10 @@ import './index.css';
 import 'uplot/dist/uPlot.min.css';
 import 'react-toastify/dist/ReactToastify.css';
 import StaticDataProvider from './components/StaticDataProvider.tsx';
+import { setupGlobalWarningSuppressions } from './lib/warningSuppressionUtils';
+
+// Setup global warning suppressions for WebGPU/ONNX Runtime
+setupGlobalWarningSuppressions();
 
 // Global error instrumentation to capture unhandled promise rejections and errors
 // Force rebuild to fix 404 error for index-11b51ec9.js (will generate new hash)
