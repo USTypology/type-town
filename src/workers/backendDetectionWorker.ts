@@ -67,13 +67,31 @@ async function detectWebGPU(): Promise<boolean> {
       return false;
     }
     
-    // Actually test if we can get an adapter
+    // Actually test if we can get an adapter and device
     const adapter = await (navigator as any).gpu.requestAdapter({
       powerPreference: 'high-performance'
     });
     
-    return adapter !== null;
-  } catch {
+    if (!adapter) {
+      return false;
+    }
+    
+    // Try to create a device to ensure WebGPU is actually functional
+    try {
+      const device = await adapter.requestDevice();
+      // Test device functionality with a simple operation
+      if (device && device.queue) {
+        device.destroy?.(); // Clean up the test device
+        return true;
+      }
+    } catch (deviceError) {
+      console.warn('[Backend Detection Worker] WebGPU device creation failed:', deviceError);
+      return false;
+    }
+    
+    return false;
+  } catch (error) {
+    console.warn('[Backend Detection Worker] WebGPU detection failed:', error);
     return false;
   }
 }
@@ -427,9 +445,27 @@ async function getWebGPUDiagnostics(): Promise<{
       return { available: false, error: 'No WebGPU adapter available' };
     }
 
-    const device = await adapter.requestDevice();
+    // Try to create a device to test actual functionality
+    let device = null;
+    try {
+      device = await adapter.requestDevice({
+        requiredFeatures: [],
+        requiredLimits: {}
+      });
+      
+      // Test basic device functionality
+      if (!device || !device.queue) {
+        device?.destroy?.();
+        return { available: false, error: 'WebGPU device creation succeeded but device is non-functional' };
+      }
+    } catch (deviceError) {
+      return { 
+        available: false, 
+        error: `WebGPU device creation failed: ${deviceError instanceof Error ? deviceError.message : 'Unknown device error'}` 
+      };
+    }
     
-    return {
+    const result = {
       available: true,
       adapter: {
         vendor: adapter.info?.vendor || 'Unknown',
@@ -437,11 +473,16 @@ async function getWebGPUDiagnostics(): Promise<{
         device: adapter.info?.device || 'Unknown',
         description: adapter.info?.description || 'Unknown'
       },
-      features: Array.from(adapter.features || []),
+      features: Array.from(adapter.features || []).map(f => String(f)),
       limits: adapter.limits ? Object.fromEntries(
         Object.entries(adapter.limits).map(([key, value]) => [key, value])
       ) : {}
     };
+    
+    // Clean up the test device
+    device?.destroy?.();
+    
+    return result;
   } catch (error) {
     return {
       available: false,

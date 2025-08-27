@@ -52,6 +52,7 @@ const supportedModels: { [key: string]: ModelConfig } = {
 
 let textGenerator: any = null;
 let isInitialized = false;
+let isInitializing = false; // Add lock to prevent simultaneous initializations
 let currentModelName = '';
 let webGPUSupported = false;
 let simdSupported = false;
@@ -73,8 +74,8 @@ interface WorkerResponse {
 // Detect backend capabilities in worker
 async function detectCapabilities() {
   try {
-    // Check WebGPU support
-    webGPUSupported = 'gpu' in navigator && typeof (navigator as any).gpu?.requestAdapter === 'function';
+    // Check WebGPU support with actual device creation test
+    webGPUSupported = await testWebGPUSupport();
     
     // Check SIMD support (WebAssembly SIMD)
     simdSupported = typeof WebAssembly !== 'undefined' && 
@@ -86,6 +87,40 @@ async function detectCapabilities() {
   } catch (error) {
     console.warn('[Worker] Error detecting capabilities:', error);
     return { webGPU: false, simd: false };
+  }
+}
+
+// Test WebGPU support with actual device creation
+async function testWebGPUSupport(): Promise<boolean> {
+  try {
+    if (!('gpu' in navigator) || typeof (navigator as any).gpu?.requestAdapter !== 'function') {
+      return false;
+    }
+    
+    const adapter = await (navigator as any).gpu.requestAdapter({
+      powerPreference: 'high-performance'
+    });
+    
+    if (!adapter) {
+      return false;
+    }
+    
+    // Try to create a device to ensure WebGPU is actually functional
+    try {
+      const device = await adapter.requestDevice();
+      if (device && device.queue) {
+        device.destroy?.(); // Clean up the test device
+        return true;
+      }
+    } catch (deviceError) {
+      console.warn('[Worker] WebGPU device creation failed:', deviceError);
+      return false;
+    }
+    
+    return false;
+  } catch (error) {
+    console.warn('[Worker] WebGPU detection failed:', error);
+    return false;
   }
 }
 
@@ -159,13 +194,25 @@ async function initializeLLM(modelName: string = 'Xenova/distilgpt2'): Promise<v
     return;
   }
 
-  // Clear previous model if switching
-  if (textGenerator && currentModelName !== modelName) {
-    textGenerator = null;
-    isInitialized = false;
+  // Prevent simultaneous initialization attempts
+  if (isInitializing) {
+    console.log('[Worker] Initialization already in progress, waiting...');
+    // Wait for current initialization to complete
+    while (isInitializing) {
+      await new Promise(resolve => setTimeout(resolve, 100));
+    }
+    return;
   }
 
+  isInitializing = true;
+
   try {
+    // Clear previous model if switching
+    if (textGenerator && currentModelName !== modelName) {
+      textGenerator = null;
+      isInitialized = false;
+    }
+
     await detectCapabilities();
     await configureEnvironment(modelName);
     
@@ -185,17 +232,45 @@ async function initializeLLM(modelName: string = 'Xenova/distilgpt2'): Promise<v
       pipelineOptions.quantized = true;
     }
 
-    // Set device preference
+    // Set device preference with better error handling
     if (modelConfig?.requiresWebGPU && webGPUSupported) {
       pipelineOptions.device = 'webgpu';
+      pipelineOptions.dtype = 'fp16'; // Use FP16 for WebGPU
     } else {
       pipelineOptions.device = 'wasm';
     }
 
-    textGenerator = await pipeline('text-generation', modelName, pipelineOptions);
-    isInitialized = true;
-    currentModelName = modelName;
-    console.log(`[Worker] ${modelConfig?.name || modelName} initialized successfully`);
+    try {
+      textGenerator = await pipeline('text-generation', modelName, pipelineOptions);
+      isInitialized = true;
+      currentModelName = modelName;
+      console.log(`[Worker] ${modelConfig?.name || modelName} initialized successfully`);
+    } catch (pipelineError) {
+      console.warn(`[Worker] Pipeline creation failed, attempting fallback:`, pipelineError);
+      
+      // If WebGPU pipeline fails, try WASM fallback
+      if (pipelineOptions.device === 'webgpu') {
+        console.log('[Worker] WebGPU pipeline failed, falling back to WASM...');
+        const fallbackOptions = {
+          ...pipelineOptions,
+          device: 'wasm',
+          quantized: true, // Use quantization for WASM fallback
+        };
+        delete fallbackOptions.dtype; // Remove WebGPU-specific options
+        
+        try {
+          textGenerator = await pipeline('text-generation', modelName, fallbackOptions);
+          isInitialized = true;
+          currentModelName = modelName;
+          console.log(`[Worker] ${modelConfig?.name || modelName} initialized successfully with WASM fallback`);
+        } catch (fallbackError) {
+          console.error('[Worker] WASM fallback also failed:', fallbackError);
+          throw fallbackError;
+        }
+      } else {
+        throw pipelineError;
+      }
+    }
     
   } catch (error) {
     console.error(`[Worker] Failed to initialize ${modelName}:`, error);
@@ -203,10 +278,13 @@ async function initializeLLM(modelName: string = 'Xenova/distilgpt2'): Promise<v
     // Fallback to smaller model if initialization fails
     if (modelName !== 'Xenova/distilgpt2') {
       console.log('[Worker] Falling back to DistilGPT-2...');
+      isInitializing = false; // Reset lock before recursive call
       return initializeLLM('Xenova/distilgpt2');
     }
     
     throw error;
+  } finally {
+    isInitializing = false;
   }
 }
 

@@ -71,13 +71,31 @@ export class BackendDetector {
         return false;
       }
       
-      // Actually test if we can get an adapter
+      // Actually test if we can get an adapter and device
       const adapter = await (navigator as any).gpu.requestAdapter({
         powerPreference: 'high-performance'
       });
       
-      return adapter !== null;
-    } catch {
+      if (!adapter) {
+        return false;
+      }
+      
+      // Try to create a device to ensure WebGPU is actually functional
+      try {
+        const device = await adapter.requestDevice();
+        // Test device functionality with a simple operation
+        if (device && device.queue) {
+          device.destroy?.(); // Clean up the test device
+          return true;
+        }
+      } catch (deviceError) {
+        console.warn('[Backend Detection] WebGPU device creation failed:', deviceError);
+        return false;
+      }
+      
+      return false;
+    } catch (error) {
+      console.warn('[Backend Detection] WebGPU detection failed:', error);
       return false;
     }
   }
@@ -502,18 +520,19 @@ export class BackendDetector {
       try {
         // Set the preferred backend order to prioritize WebGPU
         if (env.backends && env.backends.onnx) {
-          // Enable WebGPU backend if available
-          if (env.backends.onnx.webgpu) {
-            // Set WebGPU as the preferred backend
-            (env.backends.onnx as any).preferredBackend = 'webgpu';
-            console.log('Setting WebGPU as preferred backend for ONNX Runtime');
+          // Set execution providers with proper fallback ordering
+          try {
+            (env.backends.onnx as any).executionProviders = ['webgpu', 'wasm', 'cpu'];
+            console.log('Set execution providers: WebGPU (primary), WASM (fallback), CPU (last resort)');
+          } catch (epError) {
+            console.warn('Failed to set execution providers:', epError);
           }
 
           // Ensure WASM backend is also optimally configured as fallback
           if (env.backends.onnx.wasm) {
             (env.backends.onnx.wasm as any).numThreads = Math.min(navigator.hardwareConcurrency || 4, 4);
             (env.backends.onnx.wasm as any).simd = true; // Enable SIMD if available
-            console.log(`Configured WASM backend: ${(env.backends.onnx.wasm as any).numThreads} threads, SIMD enabled`);
+            console.log(`Configured WASM fallback: ${(env.backends.onnx.wasm as any).numThreads} threads, SIMD enabled`);
           }
         }
 
@@ -521,21 +540,27 @@ export class BackendDetector {
         if (typeof (window as any).ort !== 'undefined') {
           const ort = (window as any).ort;
           if (ort.env) {
-            // Configure ONNX Runtime environment
-            ort.env.wasm.numThreads = Math.min(navigator.hardwareConcurrency || 4, 4);
-            ort.env.wasm.simd = true;
-            
-            // Set WebGPU as execution provider preference
-            if (ort.env.webgpu) {
-              ort.env.webgpu.validateInputContent = false; // Improve performance
-              console.log('Configured ONNX Runtime WebGPU execution provider');
+            // Configure ONNX Runtime environment with better error handling
+            try {
+              ort.env.wasm.numThreads = Math.min(navigator.hardwareConcurrency || 4, 4);
+              ort.env.wasm.simd = true;
+              
+              // Set WebGPU configuration with validation
+              if (ort.env.webgpu) {
+                // Add timeout and validation for WebGPU context creation
+                ort.env.webgpu.validateInputContent = false; // Improve performance
+                ort.env.webgpu.contextTimeoutMs = 10000; // 10 second timeout
+                console.log('Configured ONNX Runtime WebGPU execution provider with timeout');
+              }
+            } catch (ortError) {
+              console.warn('ONNX Runtime configuration partially failed:', ortError);
             }
           }
         }
 
         return {
           success: true,
-          message: 'WebGPU backend configuration completed for transformers.js'
+          message: 'WebGPU backend configuration completed for transformers.js with robust fallback'
         };
       } catch (transformersError) {
         console.warn('WebGPU configuration failed, falling back to WASM:', transformersError);
@@ -545,6 +570,11 @@ export class BackendDetector {
           if (env.backends?.onnx?.wasm) {
             (env.backends.onnx.wasm as any).numThreads = Math.min(navigator.hardwareConcurrency || 4, 4);
             (env.backends.onnx.wasm as any).simd = true;
+            
+            // Ensure CPU fallback is available
+            if (env.backends.onnx) {
+              (env.backends.onnx as any).executionProviders = ['wasm', 'cpu'];
+            }
           }
           
           return {
