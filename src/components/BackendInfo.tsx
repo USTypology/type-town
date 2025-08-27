@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
-import { backendDetector, BenchmarkResults, BackendCapabilities } from '../lib/backendDetection';
+import { BenchmarkResults, BackendCapabilities } from '../lib/backendDetection';
+import { backendDetectionWorkerService } from '../lib/backendDetectionWorkerService';
 
 interface BackendInfoProps {
   className?: string;
@@ -18,29 +19,64 @@ export default function BackendInfo({ className = '' }: BackendInfoProps) {
   const [benchmarkResults, setBenchmarkResults] = useState<BenchmarkResults | null>(null);
   const [webgpuDiagnostics, setWebgpuDiagnostics] = useState<WebGPUDiagnostics | null>(null);
   const [isLoading, setIsLoading] = useState(false);
+  const [benchmarkProgress, setBenchmarkProgress] = useState(0);
+  const [loadingMessage, setLoadingMessage] = useState('');
   const [showDetails, setShowDetails] = useState(false);
 
   useEffect(() => {
-    // Auto-run benchmarks on component mount
-    runBenchmarks();
-    runWebGPUDiagnostics();
+    // Check for cached results first
+    const cachedResults = backendDetectionWorkerService.getCachedResults();
+    if (cachedResults) {
+      setBenchmarkResults(cachedResults);
+      runWebGPUDiagnostics(); // Still get fresh WebGPU diagnostics
+    } else {
+      // Auto-run benchmarks on component mount
+      runBenchmarks();
+      runWebGPUDiagnostics();
+    }
   }, []);
 
   const runBenchmarks = async () => {
+    if (!backendDetectionWorkerService.isWorkerAvailable()) {
+      setLoadingMessage('Worker not available, using main thread...');
+    } else {
+      setLoadingMessage('Initializing backend detection worker...');
+    }
+    
     setIsLoading(true);
+    setBenchmarkProgress(0);
+    
     try {
-      const results = await backendDetector.benchmarkFlops();
+      const results = await backendDetectionWorkerService.benchmarkFlops((progress) => {
+        setBenchmarkProgress(progress);
+        
+        if (progress < 20) {
+          setLoadingMessage('Detecting hardware capabilities...');
+        } else if (progress < 50) {
+          setLoadingMessage('Benchmarking WebGPU performance...');
+        } else if (progress < 80) {
+          setLoadingMessage('Testing WASM and JavaScript...');
+        } else if (progress < 100) {
+          setLoadingMessage('Analyzing results...');
+        } else {
+          setLoadingMessage('Complete!');
+        }
+      });
+      
       setBenchmarkResults(results);
+      setLoadingMessage('Benchmarks completed successfully');
     } catch (error) {
       console.error('Backend benchmarking failed:', error);
+      setLoadingMessage(`Benchmarking failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
     } finally {
       setIsLoading(false);
+      setBenchmarkProgress(100);
     }
   };
 
   const runWebGPUDiagnostics = async () => {
     try {
-      const diagnostics = await backendDetector.getWebGPUDiagnostics();
+      const diagnostics = await backendDetectionWorkerService.getWebGPUDiagnostics();
       setWebgpuDiagnostics(diagnostics);
     } catch (error) {
       console.error('WebGPU diagnostics failed:', error);
@@ -49,6 +85,8 @@ export default function BackendInfo({ className = '' }: BackendInfoProps) {
 
   const initializeWebGPU = async () => {
     try {
+      // Import the original backend detector for WebGPU initialization
+      const { backendDetector } = await import('../lib/backendDetection');
       const result = await backendDetector.initializeWebGPUForTransformers();
       alert(`WebGPU Initialization: ${result.message}`);
       if (result.success) {
@@ -82,9 +120,22 @@ export default function BackendInfo({ className = '' }: BackendInfoProps) {
       </div>
 
       {isLoading && (
-        <div className="flex items-center gap-2 text-yellow-400">
-          <div className="animate-spin h-4 w-4 border-2 border-yellow-400 border-t-transparent rounded-full"></div>
-          <span>Benchmarking backends...</span>
+        <div className="space-y-2">
+          <div className="flex items-center gap-2 text-yellow-400">
+            <div className="animate-spin h-4 w-4 border-2 border-yellow-400 border-t-transparent rounded-full"></div>
+            <span>{loadingMessage}</span>
+          </div>
+          {benchmarkProgress > 0 && (
+            <div className="w-full bg-gray-700 rounded-full h-2">
+              <div 
+                className="bg-yellow-400 h-2 rounded-full transition-all duration-300" 
+                style={{ width: `${benchmarkProgress}%` }}
+              ></div>
+            </div>
+          )}
+          <div className="text-xs text-gray-400">
+            Running in background worker - UI remains responsive
+          </div>
         </div>
       )}
 
@@ -208,13 +259,35 @@ export default function BackendInfo({ className = '' }: BackendInfoProps) {
 
               <button
                 onClick={() => {
-                  runBenchmarks();
+                  backendDetectionWorkerService.forceRefresh((progress) => {
+                    setBenchmarkProgress(progress);
+                    if (progress < 20) {
+                      setLoadingMessage('Detecting hardware capabilities...');
+                    } else if (progress < 50) {
+                      setLoadingMessage('Benchmarking WebGPU performance...');
+                    } else if (progress < 80) {
+                      setLoadingMessage('Testing WASM and JavaScript...');
+                    } else if (progress < 100) {
+                      setLoadingMessage('Analyzing results...');
+                    } else {
+                      setLoadingMessage('Complete!');
+                    }
+                  }).then(results => {
+                    setBenchmarkResults(results);
+                    setIsLoading(false);
+                    setLoadingMessage('Benchmarks completed successfully');
+                  }).catch(error => {
+                    console.error('Re-benchmark failed:', error);
+                    setIsLoading(false);
+                    setLoadingMessage(`Re-benchmark failed: ${error.message}`);
+                  });
+                  setIsLoading(true);
                   runWebGPUDiagnostics();
                 }}
                 disabled={isLoading}
                 className="w-full px-3 py-2 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-600 text-white text-sm rounded transition-colors"
               >
-                {isLoading ? 'Running...' : 'Re-run Benchmarks'}
+                {isLoading ? `Running... (${benchmarkProgress}%)` : 'Re-run Benchmarks'}
               </button>
             </div>
           )}
@@ -229,7 +302,7 @@ export default function BackendInfo({ className = '' }: BackendInfoProps) {
           }}
           className="w-full px-3 py-2 bg-blue-600 hover:bg-blue-700 text-white text-sm rounded transition-colors"
         >
-          Run Performance Tests
+          Run Performance Tests (Background Worker)
         </button>
       )}
     </div>
