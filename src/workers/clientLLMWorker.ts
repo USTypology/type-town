@@ -132,6 +132,34 @@ async function configureEnvironment(modelName: string) {
   }
 
   try {
+    // Configure ONNX Runtime directly to suppress warnings for large models
+    if (typeof (self as any).ort !== 'undefined') {
+      const ort = (self as any).ort;
+      if (ort.env) {
+        try {
+          // Suppress ONNX Runtime warnings about unused initializers
+          ort.env.logLevel = 'error'; // Only show errors, suppress warnings
+          ort.env.logVerbosityLevel = 0; // Minimize verbose logging
+          
+          // Configure for large model performance
+          if (ort.env.webgpu && modelConfig.requiresWebGPU && webGPUSupported) {
+            ort.env.webgpu.validateInputContent = false;
+            ort.env.webgpu.contextTimeoutMs = 15000; // Extended timeout for large models
+            ort.env.webgpu.powerPreference = 'high-performance';
+          }
+          
+          if (ort.env.wasm) {
+            ort.env.wasm.numThreads = Math.min(navigator.hardwareConcurrency || 4, 8);
+            ort.env.wasm.simd = simdSupported;
+          }
+          
+          console.log('[Worker] ONNX Runtime configured with warning suppression');
+        } catch (ortError) {
+          console.log('[Worker] ONNX Runtime direct configuration not available:', ortError);
+        }
+      }
+    }
+
     // Configure WebGPU if available and required
     if (modelConfig.requiresWebGPU && webGPUSupported) {
       try {
@@ -171,7 +199,7 @@ async function configureEnvironment(modelName: string) {
       // Memory optimization for large models
       if (modelConfig.size.includes('GB')) {
         try {
-          (env.backends.onnx.wasm as any).memoryLimitMB = 4096; // 4GB limit
+          (env.backends.onnx.wasm as any).memoryLimitMB = 8192; // Increased limit for large models
           console.log('[Worker] Memory limit set for large model');
         } catch (e) {
           console.log('[Worker] Memory configuration not available');
@@ -225,19 +253,55 @@ async function initializeLLM(modelName: string = 'Xenova/distilgpt2'): Promise<v
     }
 
     // Initialize with optimized configuration
-    const pipelineOptions: any = {};
+    const pipelineOptions: any = {
+      // Configure session options to optimize for large models
+      session_options: {
+        // Suppress ONNX Runtime warnings about unused initializers  
+        log_severity_level: 3, // Only errors (suppress warnings)
+        log_verbosity_level: 0, // Minimal logging
+        
+        // Optimize memory for large models
+        enable_mem_pattern: false, // Disable memory pattern optimization for large models
+        enable_cpu_mem_arena: false, // Use system allocator for large models
+        
+        // Graph optimizations - balance performance vs memory
+        graph_optimization_level: 'basic', // Use basic optimizations to avoid unnecessary warnings
+        
+        // Threading for large models
+        intra_op_num_threads: Math.min(navigator.hardwareConcurrency || 4, 8),
+        inter_op_num_threads: Math.min(navigator.hardwareConcurrency || 4, 4),
+        
+        // Enable profiling for debugging if needed (disabled by default)
+        enable_profiling: false
+      }
+    };
     
     // Use quantization for smaller models or when WebGPU is not available
     if (modelConfig?.quantized || !webGPUSupported) {
       pipelineOptions.quantized = true;
     }
 
-    // Set device preference with better error handling
+    // Set device preference with better error handling and large model optimizations
     if (modelConfig?.requiresWebGPU && webGPUSupported) {
       pipelineOptions.device = 'webgpu';
-      pipelineOptions.dtype = 'fp16'; // Use FP16 for WebGPU
+      pipelineOptions.dtype = 'fp16'; // Use FP16 for WebGPU to save memory
+      
+      // Additional WebGPU optimizations for large models
+      pipelineOptions.webgpu_options = {
+        powerPreference: 'high-performance',
+        forceFallbackAdapter: false,
+        // Memory management for large models
+        maxBindGroupsPerCommandEncoder: 64,
+        maxBindingsPerBindGroup: 1000
+      };
     } else {
       pipelineOptions.device = 'wasm';
+      
+      // WASM optimizations for large models  
+      pipelineOptions.wasm_options = {
+        numThreads: Math.min(navigator.hardwareConcurrency || 4, 8),
+        simd: simdSupported
+      };
     }
 
     try {

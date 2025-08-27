@@ -74,7 +74,25 @@ class ClientLLMService {
       const capabilities = await backendDetector.detectCapabilities();
       const modelConfig = this.supportedModels[targetModel];
       
-      if (modelConfig?.requiresWebGPU && !capabilities.webgpu) {
+      // Enhanced WebGPU diagnostics for large model compatibility
+      if (modelConfig?.requiresWebGPU) {
+        const webgpuDiagnostics = await backendDetector.getWebGPUDiagnostics();
+        
+        if (!webgpuDiagnostics.available) {
+          console.warn(`Model ${targetModel} requires WebGPU but it's not available. Falling back to DistilGPT-2.`);
+          return this.initialize('Xenova/distilgpt2');
+        }
+        
+        // Check if WebGPU setup is suitable for large models
+        if (!webgpuDiagnostics.suitableForLargeModels && modelConfig.size.includes('GB')) {
+          console.warn(`WebGPU adapter may not be suitable for large model ${targetModel}. Consider using a smaller model.`);
+          console.log('WebGPU diagnostics:', {
+            vendor: webgpuDiagnostics.adapter?.vendor,
+            description: webgpuDiagnostics.adapter?.description,
+            suitableForLargeModels: webgpuDiagnostics.suitableForLargeModels
+          });
+        }
+      } else if (!capabilities.webgpu) {
         console.warn(`Model ${targetModel} requires WebGPU but it's not available. Falling back to DistilGPT-2.`);
         return this.initialize('Xenova/distilgpt2');
       }
